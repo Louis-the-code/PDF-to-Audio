@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState, ChangeEvent } from "react";
 import { motion } from "motion/react";
-import { Upload, AlertCircle } from "lucide-react";
+import { Upload, AlertCircle, Volume2, Loader2 } from "lucide-react";
 import { AnimatedDownloadButton } from "./ui/AnimatedDownloadButton";
 import { pcmToWav } from "../lib/utils";
 
 export function WavyPDF() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const appRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [hasFile, setHasFile] = useState(false);
@@ -14,8 +16,70 @@ export function WavyPDF() {
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [selectedVoice, setSelectedVoice] = useState('Kore');
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragCounter, setDragCounter] = useState(0);
+  const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const [previewCache, setPreviewCache] = useState<Record<string, string>>({});
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   
   const voices = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
+
+  useEffect(() => {
+    audioPreviewRef.current = new Audio();
+    return () => {
+      if (audioPreviewRef.current) {
+        audioPreviewRef.current.pause();
+        audioPreviewRef.current.src = "";
+      }
+    };
+  }, []);
+
+  const playVoicePreview = async (voice: string) => {
+    if (previewCache[voice]) {
+      if (audioPreviewRef.current) {
+        audioPreviewRef.current.src = previewCache[voice];
+        audioPreviewRef.current.play().catch(console.error);
+      }
+      return;
+    }
+
+    setIsPreviewLoading(true);
+    try {
+      const text = `Hello, my name is ${voice}.`;
+      const response = await fetch('/api/generate-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to generate preview");
+      }
+
+      const data = await response.json();
+      const base64Audio = data.audioBase64;
+      const binary = atob(base64Audio);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const wavBlob = pcmToWav(bytes, 24000, 1);
+      const url = URL.createObjectURL(wavBlob);
+
+      setPreviewCache(prev => ({ ...prev, [voice]: url }));
+
+      if (audioPreviewRef.current) {
+        audioPreviewRef.current.src = url;
+        audioPreviewRef.current.play().catch(console.error);
+      }
+    } catch (err: any) {
+      console.error("Preview error:", err);
+      setError(err.message || "An error occurred during preview generation");
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
 
   // Mouse-sensitive background tracking
   useEffect(() => {
@@ -32,9 +96,70 @@ export function WavyPDF() {
     return () => window.removeEventListener("mousemove", handleMouseMove);
   }, []);
 
-  const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Tubes Cursor Effect
+  useEffect(() => {
+    let removeClick: (() => void) | null = null;
+    let destroyed = false;
+
+    (async () => {
+      const mod = await import(
+        /* webpackIgnore: true */
+        // @ts-ignore
+        "https://cdn.jsdelivr.net/npm/threejs-components@0.0.19/build/cursors/tubes1.min.js"
+      );
+      const TubesCursorCtor = (mod as any).default ?? mod;
+
+      if (!canvasRef.current || destroyed) return;
+
+      const app = TubesCursorCtor(canvasRef.current, {
+        tubes: {
+          colors: ["#f967fb", "#53bc28", "#6958d5"],
+          lights: {
+            intensity: 200,
+            colors: ["#83f36e", "#fe8a2e", "#ff008a", "#60aed5"],
+          },
+        },
+      });
+
+      appRef.current = app;
+
+      const handler = () => {
+        const colors = randomColors(3);
+        const lights = randomColors(4);
+        app.tubes.setColors(colors);
+        app.tubes.setLightsColors(lights);
+      };
+      document.body.addEventListener("click", handler);
+      removeClick = () => document.body.removeEventListener("click", handler);
+    })();
+
+    return () => {
+      destroyed = true;
+      if (removeClick) removeClick();
+      try {
+        appRef.current?.dispose?.();
+        appRef.current = null;
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  const processFile = async (file: File) => {
+    if (file.type !== "application/pdf") {
+      setError("Please upload a valid PDF file.");
+      setHasFile(true);
+      setIsProcessing(false);
+      return;
+    }
+
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    if (file.size > MAX_FILE_SIZE) {
+      setError("File size exceeds the 10MB limit. Please upload a smaller PDF.");
+      setHasFile(true);
+      setIsProcessing(false);
+      return;
+    }
 
     setHasFile(true);
     setIsProcessing(true);
@@ -109,6 +234,43 @@ export function WavyPDF() {
     }
   };
 
+  const handleUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragCounter(prev => prev + 1);
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragCounter(prev => prev - 1);
+    if (dragCounter - 1 === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragCounter(0);
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  };
+
   const triggerFileInput = () => {
     fileInputRef.current?.click();
   };
@@ -118,6 +280,9 @@ export function WavyPDF() {
       ref={containerRef}
       className="relative min-h-screen w-full bg-black flex flex-col items-center justify-center overflow-hidden"
     >
+      {/* Tubes Cursor Canvas */}
+      <canvas ref={canvasRef} className="absolute inset-0 z-0 block h-full w-full" />
+
       {/* Mouse-sensitive Matrix Gradient Overlay */}
       <div 
         className="absolute inset-0 z-0 opacity-30 transition-opacity duration-1000 pointer-events-none"
@@ -188,21 +353,58 @@ export function WavyPDF() {
                 </motion.button>
               </motion.div>
             ) : !hasFile ? (
-              <div className="flex flex-col items-center gap-6">
-                <div className="flex flex-wrap justify-center gap-2 mb-2">
-                  {voices.map(voice => (
+              <div 
+                className={`flex flex-col items-center gap-6 p-8 rounded-3xl border-2 border-dashed transition-all duration-300 ${
+                  isDragging 
+                    ? "border-white/50 bg-white/10 scale-105" 
+                    : "border-transparent bg-transparent"
+                }`}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+              >
+                <div className="flex flex-col items-center gap-2 mb-4 w-full max-w-xs z-10 relative">
+                  <label htmlFor="voice-select" className="text-sm font-medium text-white/70">
+                    Select Voice
+                  </label>
+                  <div className="flex items-center gap-2 w-full">
+                    <div className="relative w-full">
+                      <select
+                        id="voice-select"
+                        value={selectedVoice}
+                        onChange={(e) => {
+                          const newVoice = e.target.value;
+                          setSelectedVoice(newVoice);
+                          playVoicePreview(newVoice);
+                        }}
+                        className="w-full appearance-none bg-white/5 border border-white/10 text-white py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/20 transition-all cursor-pointer"
+                      >
+                        {voices.map(voice => (
+                          <option key={voice} value={voice} className="bg-gray-900 text-white">
+                            {voice}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-white/50">
+                        <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                          <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" fillRule="evenodd"></path>
+                        </svg>
+                      </div>
+                    </div>
                     <button
-                      key={voice}
-                      onClick={() => setSelectedVoice(voice)}
-                      className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${
-                        selectedVoice === voice 
-                          ? 'bg-white text-black border-white' 
-                          : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10 hover:text-white'
-                      }`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        playVoicePreview(selectedVoice);
+                      }}
+                      disabled={isPreviewLoading}
+                      className="p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-colors text-white disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                      title="Play voice preview"
                     >
-                      {voice}
+                      {isPreviewLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Volume2 className="w-5 h-5" />}
                     </button>
-                  ))}
+                  </div>
                 </div>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -213,6 +415,9 @@ export function WavyPDF() {
                   <Upload className="w-5 h-5" />
                   Upload PDF
                 </motion.button>
+                <p className={`text-sm transition-colors duration-300 ${isDragging ? "text-white" : "text-white/40"}`}>
+                  or drag and drop your PDF here
+                </p>
               </div>
             ) : (
               <AnimatedDownloadButton 
@@ -242,5 +447,15 @@ export function WavyPDF() {
         </motion.div>
       </div>
     </div>
+  );
+}
+
+function randomColors(count: number) {
+  return new Array(count).fill(0).map(
+    () =>
+      "#" +
+      Math.floor(Math.random() * 16777215)
+        .toString(16)
+        .padStart(6, "0")
   );
 }

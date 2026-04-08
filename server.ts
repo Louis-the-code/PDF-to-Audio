@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Modality } from "@google/genai";
@@ -36,6 +37,7 @@ async function startServer() {
         return res.status(400).json({ error: "No PDF provided" });
       }
 
+      console.log("Extract text - API Key length:", process.env.GEMINI_API_KEY?.length);
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
       const textResponse = await ai.models.generateContent({
@@ -70,6 +72,7 @@ async function startServer() {
       }
 
       const voiceName = voice || 'Kore';
+      console.log("Generate audio - API Key length:", process.env.GEMINI_API_KEY?.length);
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
       const textToRead = text.substring(0, 4000);
