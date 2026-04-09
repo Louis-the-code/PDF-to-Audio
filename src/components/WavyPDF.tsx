@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, ChangeEvent } from "react";
 import { motion } from "motion/react";
 import { Upload, AlertCircle, Volume2, Loader2 } from "lucide-react";
 import { AnimatedDownloadButton } from "./ui/AnimatedDownloadButton";
-import { pcmToWav } from "../lib/utils";
+import { pcmToWav, pcmToMp3 } from "../lib/utils";
 
 export function WavyPDF() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -16,6 +16,8 @@ export function WavyPDF() {
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [selectedVoice, setSelectedVoice] = useState('Kore');
+  const [audioFormat, setAudioFormat] = useState<'mp3' | 'wav'>('mp3');
+  const [maxChars, setMaxChars] = useState<number>(4000);
   const [isDragging, setIsDragging] = useState(false);
   const [dragCounter, setDragCounter] = useState(0);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
@@ -165,6 +167,28 @@ export function WavyPDF() {
     setIsProcessing(true);
     setError(null);
 
+    const chunkText = (text: string, maxLen: number): string[] => {
+      const chunks: string[] = [];
+      let currentIndex = 0;
+      while (currentIndex < text.length) {
+        let nextIndex = currentIndex + maxLen;
+        if (nextIndex < text.length) {
+          const lastPeriod = text.lastIndexOf('.', nextIndex);
+          if (lastPeriod > currentIndex) {
+            nextIndex = lastPeriod + 1;
+          } else {
+            const lastSpace = text.lastIndexOf(' ', nextIndex);
+            if (lastSpace > currentIndex) {
+              nextIndex = lastSpace + 1;
+            }
+          }
+        }
+        chunks.push(text.substring(currentIndex, nextIndex).trim());
+        currentIndex = nextIndex;
+      }
+      return chunks.filter(c => c.length > 0);
+    };
+
     try {
       const reader = new FileReader();
       reader.onload = async () => {
@@ -184,31 +208,42 @@ export function WavyPDF() {
           }
           
           const { text } = await textResponse.json();
+          const chunks = chunkText(text, maxChars);
+          
+          let allBytes = new Uint8Array(0);
 
-          setStatusMessage("Generating audio...");
-          const audioResponse = await fetch('/api/generate-audio', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, voice: selectedVoice })
-          });
-          
-          if (!audioResponse.ok) {
-            const errorData = await audioResponse.json();
-            throw new Error(errorData.error || "Failed to generate audio");
+          for (let i = 0; i < chunks.length; i++) {
+            setStatusMessage(`Generating audio chunk ${i + 1} of ${chunks.length}...`);
+            const audioResponse = await fetch('/api/generate-audio', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: chunks[i], voice: selectedVoice })
+            });
+            
+            if (!audioResponse.ok) {
+              const errorData = await audioResponse.json();
+              throw new Error(errorData.error || "Failed to generate audio");
+            }
+            
+            const data = await audioResponse.json();
+            const base64Audio = data.audioBase64;
+
+            const binary = atob(base64Audio);
+            const bytes = new Uint8Array(binary.length);
+            for (let j = 0; j < binary.length; j++) {
+              bytes[j] = binary.charCodeAt(j);
+            }
+            
+            const newAllBytes = new Uint8Array(allBytes.length + bytes.length);
+            newAllBytes.set(allBytes);
+            newAllBytes.set(bytes, allBytes.length);
+            allBytes = newAllBytes;
           }
-          
-          const data = await audioResponse.json();
-          const base64Audio = data.audioBase64;
 
           setStatusMessage("Finalizing...");
-          const binary = atob(base64Audio);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-          }
           
-          const wavBlob = pcmToWav(bytes, 24000, 1);
-          const url = URL.createObjectURL(wavBlob);
+          const audioBlob = audioFormat === 'mp3' ? pcmToMp3(allBytes, 24000, 1) : pcmToWav(allBytes, 24000, 1);
+          const url = URL.createObjectURL(audioBlob);
           
           setAudioUrl(url);
           setIsProcessing(false);
@@ -300,9 +335,22 @@ export function WavyPDF() {
           initial={{ opacity: 0, y: 40, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-          className="text-5xl md:text-7xl font-bold tracking-tighter text-white mb-6"
+          className="text-5xl md:text-7xl font-bold tracking-tighter text-white mb-6 flex gap-3 md:gap-4 justify-center cursor-default"
         >
-          PDF to Audio.
+          {["PDF", "to", "Audio."].map((word, i) => (
+            <motion.span
+              key={i}
+              whileHover={{ 
+                scale: 1.1, 
+                rotate: i % 2 === 0 ? 2 : -2,
+                textShadow: "0px 0px 20px rgba(255,255,255,0.8)" 
+              }}
+              transition={{ type: "spring", stiffness: 300, damping: 10 }}
+              className="inline-block"
+            >
+              {word}
+            </motion.span>
+          ))}
         </motion.h1>
         
         <motion.p 
@@ -314,6 +362,100 @@ export function WavyPDF() {
           Transform your documents into high-fidelity, narrated audio experiences with intelligent sectioning.
         </motion.p>
 
+        {/* Settings Panel */}
+        {!hasFile && !error && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            className="w-full max-w-2xl mb-8 p-6 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-md flex flex-col gap-6"
+          >
+            {/* Voice Selection */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-medium text-white/80">Voice Persona</label>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    playVoicePreview(selectedVoice);
+                  }}
+                  disabled={isPreviewLoading}
+                  className="flex items-center gap-2 text-xs font-medium text-white/60 hover:text-white transition-colors disabled:opacity-50"
+                >
+                  {isPreviewLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Volume2 className="w-3 h-3" />}
+                  Preview {selectedVoice}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {voices.map(voice => (
+                  <button
+                    key={voice}
+                    onClick={() => {
+                      setSelectedVoice(voice);
+                      playVoicePreview(voice);
+                    }}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
+                      selectedVoice === voice 
+                        ? 'bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.4)]' 
+                        : 'bg-white/5 text-white/70 hover:bg-white/15 border border-white/5'
+                    }`}
+                  >
+                    {voice}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Audio Format */}
+              <div>
+                <label className="text-sm font-medium text-white/80 mb-3 block">Audio Format</label>
+                <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                  <button 
+                    onClick={() => setAudioFormat('mp3')}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
+                      audioFormat === 'mp3' ? 'bg-white/15 text-white shadow-sm' : 'text-white/50 hover:text-white/80'
+                    }`}
+                  >
+                    MP3
+                  </button>
+                  <button 
+                    onClick={() => setAudioFormat('wav')}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
+                      audioFormat === 'wav' ? 'bg-white/15 text-white shadow-sm' : 'text-white/50 hover:text-white/80'
+                    }`}
+                  >
+                    WAV
+                  </button>
+                </div>
+              </div>
+
+              {/* Chunk Size Slider */}
+              <div>
+                <div className="flex justify-between items-end mb-3">
+                  <label className="text-sm font-medium text-white/80">Segment Size</label>
+                  <span className="text-xs font-mono text-white/50 bg-black/40 px-2 py-1 rounded-md">{maxChars} chars</span>
+                </div>
+                <div className="relative pt-2">
+                  <input
+                    type="range"
+                    min="1000"
+                    max="10000"
+                    step="500"
+                    value={maxChars}
+                    onChange={(e) => setMaxChars(Number(e.target.value))}
+                    className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-white"
+                  />
+                  <div className="flex justify-between text-[10px] text-white/40 mt-2 px-1 font-mono">
+                    <span>1k</span>
+                    <span>10k</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Upload & Download Actions */}
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
@@ -321,7 +463,7 @@ export function WavyPDF() {
           transition={{ delay: 0.4, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
           className="flex flex-col items-center gap-8 w-full"
         >
-          <div className="flex flex-col sm:flex-row gap-6 items-center">
+          <div className="flex flex-col sm:flex-row gap-6 items-center w-full max-w-2xl justify-center">
             <input 
               type="file" 
               accept=".pdf,application/pdf" 
@@ -353,78 +495,47 @@ export function WavyPDF() {
                 </motion.button>
               </motion.div>
             ) : !hasFile ? (
-              <div 
-                className={`flex flex-col items-center gap-6 p-8 rounded-3xl border-2 border-dashed transition-all duration-300 ${
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className={`flex flex-col items-center justify-center gap-6 p-12 w-full rounded-3xl border-2 border-dashed transition-all duration-300 relative overflow-hidden ${
                   isDragging 
-                    ? "border-white/50 bg-white/10 scale-105" 
-                    : "border-transparent bg-transparent"
+                    ? "border-white/50 bg-white/10 scale-[1.02] shadow-[0_0_30px_rgba(255,255,255,0.15)]" 
+                    : "border-white/10 bg-black/20 hover:bg-white/5 hover:border-white/20"
                 }`}
                 onDragEnter={handleDragEnter}
                 onDragLeave={handleDragLeave}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
               >
-                <div className="flex flex-col items-center gap-2 mb-4 w-full max-w-xs z-10 relative">
-                  <label htmlFor="voice-select" className="text-sm font-medium text-white/70">
-                    Select Voice
-                  </label>
-                  <div className="flex items-center gap-2 w-full">
-                    <div className="relative w-full">
-                      <select
-                        id="voice-select"
-                        value={selectedVoice}
-                        onChange={(e) => {
-                          const newVoice = e.target.value;
-                          setSelectedVoice(newVoice);
-                          playVoicePreview(newVoice);
-                        }}
-                        className="w-full appearance-none bg-white/5 border border-white/10 text-white py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/20 transition-all cursor-pointer"
-                      >
-                        {voices.map(voice => (
-                          <option key={voice} value={voice} className="bg-gray-900 text-white">
-                            {voice}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-white/50">
-                        <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
-                          <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" fillRule="evenodd"></path>
-                        </svg>
-                      </div>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        playVoicePreview(selectedVoice);
-                      }}
-                      disabled={isPreviewLoading}
-                      className="p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-colors text-white disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                      title="Play voice preview"
-                    >
-                      {isPreviewLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Volume2 className="w-5 h-5" />}
-                    </button>
-                  </div>
-                </div>
+                {isDragging && (
+                  <motion.div 
+                    className="absolute inset-0 bg-white/5 pointer-events-none"
+                    animate={{ opacity: [0.5, 1, 0.5] }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                )}
+                
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={triggerFileInput}
-                  className="flex items-center gap-3 px-8 py-4 bg-white text-black rounded-full font-semibold hover:bg-white/90 transition-colors shadow-glow-white cursor-pointer"
+                  className="flex items-center gap-3 px-8 py-4 bg-white text-black rounded-full font-semibold hover:bg-white/90 transition-colors shadow-glow-white cursor-pointer z-10"
                 >
                   <Upload className="w-5 h-5" />
-                  Upload PDF
+                  Select PDF
                 </motion.button>
-                <p className={`text-sm transition-colors duration-300 ${isDragging ? "text-white" : "text-white/40"}`}>
+                <p className={`text-sm transition-colors duration-300 z-10 ${isDragging ? "text-white" : "text-white/40"}`}>
                   or drag and drop your PDF here
                 </p>
-              </div>
+              </motion.div>
             ) : (
               <AnimatedDownloadButton 
                 isProcessing={isProcessing} 
                 audioUrl={audioUrl} 
                 error={error} 
                 statusMessage={statusMessage}
+                format={audioFormat}
               />
             )}
           </div>

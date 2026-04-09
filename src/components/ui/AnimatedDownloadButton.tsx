@@ -8,15 +8,16 @@ interface DownloadButtonProps extends HTMLMotionProps<"button"> {
   audioUrl?: string | null;
   error?: string | null;
   statusMessage?: string;
+  format?: 'mp3' | 'wav';
 }
 
-export function AnimatedDownloadButton({ className, isProcessing, audioUrl, error, statusMessage, onClick, ...props }: DownloadButtonProps) {
+export function AnimatedDownloadButton({ className, isProcessing, audioUrl, error, statusMessage, format = 'mp3', onClick, ...props }: DownloadButtonProps) {
   const handleDownload = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (onClick) onClick(e);
     if (audioUrl) {
       const a = document.createElement("a");
       a.href = audioUrl;
-      a.download = "narrated-audio.mp3";
+      a.download = `narrated-audio.${format}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -44,15 +45,32 @@ export function AnimatedDownloadButton({ className, isProcessing, audioUrl, erro
   if (isProcessing) {
     return (
       <motion.button
+        animate={{ 
+          boxShadow: ["0px 0px 0px rgba(255,255,255,0)", "0px 0px 20px rgba(255,255,255,0.3)", "0px 0px 0px rgba(255,255,255,0)"]
+        }}
+        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
         className={cn(
-          "relative flex items-center justify-center gap-2 px-8 py-4 bg-black text-white rounded-full border border-white/20 overflow-hidden cursor-wait opacity-80 min-w-[200px]",
+          "relative flex items-center justify-center gap-3 px-8 py-4 bg-black text-white rounded-full border border-white/20 overflow-hidden cursor-wait min-w-[220px]",
           className
         )}
         disabled
         {...props}
       >
-        <Loader2 className="w-5 h-5 animate-spin" />
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+        >
+          <Loader2 className="w-5 h-5" />
+        </motion.div>
         <span className="font-medium">{statusMessage || "Processing PDF..."}</span>
+        
+        {/* Subtle progress bar background */}
+        <motion.div 
+          className="absolute inset-0 bg-white/5 origin-left"
+          initial={{ scaleX: 0 }}
+          animate={{ scaleX: 1 }}
+          transition={{ duration: 10, ease: "linear" }}
+        />
       </motion.button>
     );
   }

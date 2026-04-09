@@ -74,12 +74,10 @@ async function startServer() {
       const voiceName = voice || 'Kore';
       console.log("Generate audio - API Key length:", process.env.GEMINI_API_KEY?.length);
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-      const textToRead = text.substring(0, 4000);
       
       const audioResponse = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: textToRead }] }],
+        contents: [{ parts: [{ text: text }] }],
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {

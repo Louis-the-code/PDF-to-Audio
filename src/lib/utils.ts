@@ -1,8 +1,35 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+// @ts-ignore
+import lamejs from "lamejs";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+export function pcmToMp3(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Blob {
+  const mp3encoder = new lamejs.Mp3Encoder(numChannels, sampleRate, 128); // 128kbps
+  const mp3Data: Int8Array[] = [];
+  
+  // Convert Uint8Array to Int16Array
+  const int16Data = new Int16Array(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength / 2);
+  
+  const sampleBlockSize = 1152;
+  
+  for (let i = 0; i < int16Data.length; i += sampleBlockSize) {
+    const sampleChunk = int16Data.subarray(i, i + sampleBlockSize);
+    const mp3buf = mp3encoder.encodeBuffer(sampleChunk);
+    if (mp3buf.length > 0) {
+      mp3Data.push(mp3buf);
+    }
+  }
+  
+  const mp3buf = mp3encoder.flush();
+  if (mp3buf.length > 0) {
+    mp3Data.push(mp3buf);
+  }
+  
+  return new Blob(mp3Data, { type: 'audio/mp3' });
 }
 
 export function pcmToWav(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Blob {
