@@ -3,6 +3,29 @@ import { motion } from "motion/react";
 import { Upload, AlertCircle, Volume2, Loader2 } from "lucide-react";
 import { AnimatedDownloadButton } from "./ui/AnimatedDownloadButton";
 import { pcmToWav, pcmToMp3 } from "../lib/utils";
+import { GoogleGenAI, Modality } from "@google/genai";
+
+const getFriendlyErrorMessage = (error: any): string => {
+  const errorString = error?.message || String(error);
+  
+  if (errorString.includes("API key not valid") || errorString.includes("API_KEY_INVALID")) {
+    return "Invalid API key. Please check your GEMINI_API_KEY in the Settings menu.";
+  }
+  if (errorString.includes("Quota exceeded") || errorString.includes("429") || errorString.includes("Too Many Requests")) {
+    return "Rate limit exceeded. Please wait a moment and try again.";
+  }
+  if (errorString.includes("mimeType") || errorString.includes("unsupported") || errorString.includes("invalid argument")) {
+    return "Unsupported file type or content. Please ensure you uploaded a valid PDF.";
+  }
+  if (errorString.includes("fetch failed") || errorString.includes("network")) {
+    return "Network error connecting to the AI service. Please check your connection and try again.";
+  }
+  if (errorString.includes("Failed to generate audio for chunk")) {
+    return "Failed to generate audio for a segment. The text might contain unsupported characters or the service is temporarily unavailable.";
+  }
+  
+  return errorString || "An unexpected error occurred during processing.";
+};
 
 export function WavyPDF() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -15,16 +38,27 @@ export function WavyPDF() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
-  const [selectedVoice, setSelectedVoice] = useState('Kore');
-  const [audioFormat, setAudioFormat] = useState<'mp3' | 'wav'>('mp3');
-  const [maxChars, setMaxChars] = useState<number>(4000);
+  const [selectedVoice, setSelectedVoice] = useState(() => localStorage.getItem('wavy_voice') || 'Kore');
+  const [audioFormat, setAudioFormat] = useState<'mp3' | 'wav'>(() => (localStorage.getItem('wavy_format') as 'mp3' | 'wav') || 'mp3');
+  const [maxChars, setMaxChars] = useState<number>(() => {
+    const saved = localStorage.getItem('wavy_maxChars');
+    return saved ? parseInt(saved, 10) : 4000;
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [dragCounter, setDragCounter] = useState(0);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const [previewCache, setPreviewCache] = useState<Record<string, string>>({});
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [pdfFileUrl, setPdfFileUrl] = useState<string | null>(null);
+  const [pdfSummary, setPdfSummary] = useState<string | null>(null);
   
   const voices = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
+
+  useEffect(() => {
+    localStorage.setItem('wavy_voice', selectedVoice);
+    localStorage.setItem('wavy_format', audioFormat);
+    localStorage.setItem('wavy_maxChars', maxChars.toString());
+  }, [selectedVoice, audioFormat, maxChars]);
 
   useEffect(() => {
     audioPreviewRef.current = new Audio();
@@ -48,19 +82,24 @@ export function WavyPDF() {
     setIsPreviewLoading(true);
     try {
       const text = `Hello, my name is ${voice}.`;
-      const response = await fetch('/api/generate-audio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice })
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      
+      const audioResponse = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text }] }],
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: voice },
+            },
+          },
+        },
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to generate preview");
-      }
+      const base64Audio = audioResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (!base64Audio) throw new Error("Failed to generate audio");
 
-      const data = await response.json();
-      const base64Audio = data.audioBase64;
       const binary = atob(base64Audio);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) {
@@ -77,7 +116,7 @@ export function WavyPDF() {
       }
     } catch (err: any) {
       console.error("Preview error:", err);
-      setError(err.message || "An error occurred during preview generation");
+      setError(getFriendlyErrorMessage(err));
     } finally {
       setIsPreviewLoading(false);
     }
@@ -166,6 +205,8 @@ export function WavyPDF() {
     setHasFile(true);
     setIsProcessing(true);
     setError(null);
+    setPdfFileUrl(URL.createObjectURL(file));
+    setPdfSummary(null);
 
     const chunkText = (text: string, maxLen: number): string[] => {
       const chunks: string[] = [];
@@ -194,50 +235,89 @@ export function WavyPDF() {
       reader.onload = async () => {
         try {
           const base64Data = (reader.result as string).split(',')[1];
+          const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
           
           setStatusMessage("Extracting text from PDF...");
-          const textResponse = await fetch('/api/extract-text', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pdfBase64: base64Data })
+          const textResponse = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  { text: "Extract the main text from this document, suitable for narration. Exclude page numbers, headers, footers, and complex tables. Just provide the clean text to be read aloud." },
+                  { inlineData: { data: base64Data, mimeType: "application/pdf" } }
+                ]
+              }
+            ]
           });
           
-          if (!textResponse.ok) {
-            const errorData = await textResponse.json();
-            throw new Error(errorData.error || "Failed to extract text");
-          }
-          
-          const { text } = await textResponse.json();
-          const chunks = chunkText(text, maxChars);
-          
-          let allBytes = new Uint8Array(0);
+          const extractedText = textResponse.text;
+          if (!extractedText) throw new Error("Failed to extract text from PDF");
 
-          for (let i = 0; i < chunks.length; i++) {
-            setStatusMessage(`Generating audio chunk ${i + 1} of ${chunks.length}...`);
-            const audioResponse = await fetch('/api/generate-audio', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: chunks[i], voice: selectedVoice })
+          setPdfSummary(extractedText.substring(0, 400) + "...");
+          
+          const chunks = chunkText(extractedText, maxChars);
+          
+          setStatusMessage(`Generating audio for ${chunks.length} segments...`);
+
+          const processChunk = async (chunk: string, index: number) => {
+            const audioResponse = await ai.models.generateContent({
+              model: "gemini-2.5-flash-preview-tts",
+              contents: [{ parts: [{ text: chunk }] }],
+              config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName: selectedVoice },
+                  },
+                },
+              },
             });
             
-            if (!audioResponse.ok) {
-              const errorData = await audioResponse.json();
-              throw new Error(errorData.error || "Failed to generate audio");
-            }
-            
-            const data = await audioResponse.json();
-            const base64Audio = data.audioBase64;
+            const base64Audio = audioResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+            if (!base64Audio) throw new Error(`Failed to generate audio for chunk ${index + 1}`);
 
             const binary = atob(base64Audio);
             const bytes = new Uint8Array(binary.length);
             for (let j = 0; j < binary.length; j++) {
               bytes[j] = binary.charCodeAt(j);
             }
-            
-            const newAllBytes = new Uint8Array(allBytes.length + bytes.length);
-            newAllBytes.set(allBytes);
-            newAllBytes.set(bytes, allBytes.length);
-            allBytes = newAllBytes;
+            return bytes;
+          };
+
+          const concurrencyLimit = 3;
+          const results: Uint8Array[] = new Array(chunks.length);
+          let currentIndex = 0;
+          let completedCount = 0;
+
+          const worker = async () => {
+            while (currentIndex < chunks.length) {
+              const index = currentIndex++;
+              results[index] = await processChunk(chunks[index], index);
+              completedCount++;
+              setStatusMessage(`Generated audio chunk ${completedCount} of ${chunks.length}...`);
+            }
+          };
+
+          const workers = [];
+          for (let i = 0; i < Math.min(concurrencyLimit, chunks.length); i++) {
+            workers.push(worker());
+          }
+          
+          await Promise.all(workers);
+
+          // 0.5 seconds of silence at 24kHz 16-bit mono = 12000 samples = 24000 bytes
+          const silenceBytes = new Uint8Array(24000);
+
+          // Concatenate all bytes in correct order, adding silence between chunks
+          const totalLength = results.reduce((acc, curr) => acc + curr.length + silenceBytes.length, 0);
+          let allBytes = new Uint8Array(totalLength);
+          let offset = 0;
+          for (const bytes of results) {
+            allBytes.set(bytes, offset);
+            offset += bytes.length;
+            allBytes.set(silenceBytes, offset);
+            offset += silenceBytes.length;
           }
 
           setStatusMessage("Finalizing...");
@@ -250,7 +330,7 @@ export function WavyPDF() {
           setStatusMessage("");
         } catch (err: any) {
           console.error(err);
-          setError(err.message || "An error occurred during processing");
+          setError(getFriendlyErrorMessage(err));
           setIsProcessing(false);
           setStatusMessage("");
         }
@@ -263,7 +343,7 @@ export function WavyPDF() {
       reader.readAsDataURL(file);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "An error occurred");
+      setError(getFriendlyErrorMessage(err));
       setIsProcessing(false);
       setStatusMessage("");
     }
@@ -488,6 +568,8 @@ export function WavyPDF() {
                     setHasFile(false);
                     setError(null);
                     setAudioUrl(null);
+                    setPdfFileUrl(null);
+                    setPdfSummary(null);
                   }}
                   className="px-8 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full font-medium transition-colors border border-white/10"
                 >
@@ -498,10 +580,10 @@ export function WavyPDF() {
               <motion.div 
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className={`flex flex-col items-center justify-center gap-6 p-12 w-full rounded-3xl border-2 border-dashed transition-all duration-300 relative overflow-hidden ${
+                className={`flex flex-col items-center justify-center gap-6 p-12 w-full rounded-3xl border-2 border-dashed transition-all duration-300 relative overflow-hidden group ${
                   isDragging 
-                    ? "border-white/50 bg-white/10 scale-[1.02] shadow-[0_0_30px_rgba(255,255,255,0.15)]" 
-                    : "border-white/10 bg-black/20 hover:bg-white/5 hover:border-white/20"
+                    ? "border-white bg-white/10 scale-[1.02] shadow-[0_0_40px_rgba(255,255,255,0.2)]" 
+                    : "border-white/10 bg-black/20 hover:bg-white/5 hover:border-white/30"
                 }`}
                 onDragEnter={handleDragEnter}
                 onDragLeave={handleDragLeave}
@@ -509,24 +591,39 @@ export function WavyPDF() {
                 onDrop={handleDrop}
               >
                 {isDragging && (
-                  <motion.div 
-                    className="absolute inset-0 bg-white/5 pointer-events-none"
-                    animate={{ opacity: [0.5, 1, 0.5] }}
-                    transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                  />
+                  <>
+                    <motion.div 
+                      className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent pointer-events-none"
+                      animate={{ opacity: [0.3, 0.8, 0.3], y: [-20, 0, -20] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                    <motion.div 
+                      className="absolute inset-0 pointer-events-none"
+                      style={{ boxShadow: "inset 0 0 50px rgba(255,255,255,0.1)" }}
+                      animate={{ opacity: [0.5, 1, 0.5] }}
+                      transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                  </>
                 )}
                 
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={triggerFileInput}
-                  className="flex items-center gap-3 px-8 py-4 bg-white text-black rounded-full font-semibold hover:bg-white/90 transition-colors shadow-glow-white cursor-pointer z-10"
+                  className={`flex items-center gap-3 px-8 py-4 bg-white text-black rounded-full font-semibold hover:bg-white/90 transition-all shadow-glow-white cursor-pointer z-10 ${
+                    isDragging ? "scale-110 shadow-[0_0_30px_rgba(255,255,255,0.8)]" : ""
+                  }`}
                 >
-                  <Upload className="w-5 h-5" />
-                  Select PDF
+                  <motion.div
+                    animate={isDragging ? { y: [-3, 3, -3] } : {}}
+                    transition={{ duration: 1, repeat: Infinity, ease: "easeInOut" }}
+                  >
+                    <Upload className="w-5 h-5" />
+                  </motion.div>
+                  {isDragging ? "Drop PDF Here" : "Select PDF"}
                 </motion.button>
-                <p className={`text-sm transition-colors duration-300 z-10 ${isDragging ? "text-white" : "text-white/40"}`}>
-                  or drag and drop your PDF here
+                <p className={`text-sm transition-colors duration-300 z-10 ${isDragging ? "text-white font-medium" : "text-white/40"}`}>
+                  {isDragging ? "Release to upload" : "or drag and drop your PDF here"}
                 </p>
               </motion.div>
             ) : (
@@ -540,19 +637,44 @@ export function WavyPDF() {
             )}
           </div>
 
-          {/* Audio Player */}
-          {audioUrl && !isProcessing && !error && (
+          {/* Audio Player & Preview */}
+          {hasFile && !error && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="w-full max-w-md p-4 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-sm"
-              style={{ colorScheme: "dark" }}
+              className="w-full max-w-4xl mt-8 flex flex-col gap-6"
             >
-              <audio 
-                controls 
-                src={audioUrl} 
-                className="w-full h-12 outline-none" 
-              />
+              {audioUrl && !isProcessing && (
+                <div className="w-full max-w-md mx-auto p-4 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-sm" style={{ colorScheme: "dark" }}>
+                  <audio controls src={audioUrl} className="w-full h-12 outline-none" />
+                </div>
+              )}
+
+              {pdfFileUrl && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                  <div className="flex flex-col gap-3">
+                    <h3 className="text-white/80 font-medium text-sm px-2">Document Preview</h3>
+                    <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40 h-80 relative">
+                      <iframe src={`${pdfFileUrl}#toolbar=0&navpanes=0&scrollbar=0`} className="w-full h-full absolute inset-0" title="PDF Preview" />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    <h3 className="text-white/80 font-medium text-sm px-2">Text Extracted</h3>
+                    <div className="rounded-2xl p-6 border border-white/10 bg-white/5 h-80 overflow-y-auto text-sm text-white/70 leading-relaxed relative">
+                      {pdfSummary ? (
+                        <>
+                          <p>{pdfSummary}</p>
+                          <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-[#1a1a1a] to-transparent pointer-events-none rounded-b-2xl" />
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-center h-full">
+                          <Loader2 className="w-6 h-6 text-white/30 animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
         </motion.div>
