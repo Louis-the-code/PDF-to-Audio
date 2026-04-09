@@ -282,11 +282,18 @@ export function WavyPDF() {
             for (let j = 0; j < binary.length; j++) {
               bytes[j] = binary.charCodeAt(j);
             }
-            return bytes;
+            
+            // The Gemini API returns raw 16-bit PCM data (not a WAV/MP3 file with headers).
+            // Therefore, AudioContext.decodeAudioData will fail. 
+            // We can directly view the bytes as an Int16Array.
+            const int16Data = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+            
+            return int16Data;
           };
 
           const concurrencyLimit = 3;
-          const results: Uint8Array[] = new Array(chunks.length);
+          // Notice we are now storing Int16Array (pure sound waves)
+          const results: Int16Array[] = new Array(chunks.length);
           let currentIndex = 0;
           let completedCount = 0;
 
@@ -306,25 +313,28 @@ export function WavyPDF() {
           
           await Promise.all(workers);
 
-          // 0.5 seconds of silence at 24kHz 16-bit mono = 12000 samples = 24000 bytes
-          const silenceBytes = new Uint8Array(24000);
+          // 4. 0.5 seconds of silence at 24kHz = 12,000 samples
+          const silenceSamples = new Int16Array(12000);
 
-          // Concatenate all bytes in correct order, adding silence between chunks
-          const totalLength = results.reduce((acc, curr) => acc + curr.length + silenceBytes.length, 0);
-          let allBytes = new Uint8Array(totalLength);
+          // 5. Concatenate all PCM samples in correct order, adding silence
+          const totalLength = results.reduce((acc, curr) => acc + curr.length + silenceSamples.length, 0);
+          const mergedPcm = new Int16Array(totalLength);
           let offset = 0;
-          for (const bytes of results) {
-            allBytes.set(bytes, offset);
-            offset += bytes.length;
-            allBytes.set(silenceBytes, offset);
-            offset += silenceBytes.length;
+          
+          for (const pcmChunk of results) {
+            mergedPcm.set(pcmChunk, offset);
+            offset += pcmChunk.length;
+            mergedPcm.set(silenceSamples, offset);
+            offset += silenceSamples.length;
           }
 
           setStatusMessage("Finalizing...");
           
-          const audioBlob = audioFormat === 'mp3' ? pcmToMp3(allBytes, 24000, 1) : pcmToWav(allBytes, 24000, 1);
+          // 6. Convert back to Uint8Array for your utility functions
+          const finalBytes = new Uint8Array(mergedPcm.buffer);
+          const audioBlob = audioFormat === 'mp3' ? pcmToMp3(finalBytes, 24000, 1) : pcmToWav(finalBytes, 24000, 1);
           const url = URL.createObjectURL(audioBlob);
-          
+
           setAudioUrl(url);
           setIsProcessing(false);
           setStatusMessage("");
