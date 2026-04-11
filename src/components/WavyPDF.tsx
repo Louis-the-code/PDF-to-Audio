@@ -1,9 +1,18 @@
 import React, { useEffect, useRef, useState, ChangeEvent } from "react";
 import { motion } from "motion/react";
-import { Upload, AlertCircle, Volume2, Loader2 } from "lucide-react";
+import { Upload, AlertCircle, Volume2, Loader2, SkipBack, SkipForward, Cloud } from "lucide-react";
 import { AnimatedDownloadButton } from "./ui/AnimatedDownloadButton";
 import { pcmToWav, pcmToMp3 } from "../lib/utils";
 import { GoogleGenAI, Modality } from "@google/genai";
+import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
+import { supabase } from "../lib/supabase";
+
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url,
+).toString();
 
 const getFriendlyErrorMessage = (error: any): string => {
   const errorString = error?.message || String(error);
@@ -34,6 +43,33 @@ export function WavyPDF() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [hasFile, setHasFile] = useState(false);
+  const [step, setStep] = useState<'idle' | 'extracting' | 'review' | 'generating' | 'done'>('idle');
+  const [extractedText, setExtractedText] = useState("");
+  const [suggestedChapters, setSuggestedChapters] = useState<{text: string}[]>([]);
+  const [playlist, setPlaylist] = useState<{title: string, url: string, blob?: Blob}[]>([]);
+  const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
+  const [isSavingToCloud, setIsSavingToCloud] = useState(false);
+  const [cloudSaveStatus, setCloudSaveStatus] = useState<string | null>(null);
+
+  const detectChapters = (text: string) => {
+    const lines = text.split('\n');
+    const suggestions: {text: string}[] = [];
+    const regex = /^(?:Chapter|Section|Part)\s+(?:\d+|[IVX]+|[A-Z])(?:[\s.:-]|$).{0,80}$/i;
+    const regexNumber = /^\d+\.\s+[A-Z].{0,80}$/;
+    
+    const uniqueSuggestions = new Set<string>();
+
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      if ((regex.test(trimmed) || regexNumber.test(trimmed)) && !trimmed.includes('[CHAPTER:')) {
+        if (!uniqueSuggestions.has(trimmed)) {
+          uniqueSuggestions.add(trimmed);
+          suggestions.push({ text: trimmed });
+        }
+      }
+    });
+    setSuggestedChapters(suggestions);
+  };
   const [isProcessing, setIsProcessing] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +86,6 @@ export function WavyPDF() {
   const [previewCache, setPreviewCache] = useState<Record<string, string>>({});
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [pdfFileUrl, setPdfFileUrl] = useState<string | null>(null);
-  const [pdfSummary, setPdfSummary] = useState<string | null>(null);
   
   const voices = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
 
@@ -204,9 +239,9 @@ export function WavyPDF() {
 
     setHasFile(true);
     setIsProcessing(true);
+    setStep('extracting');
     setError(null);
     setPdfFileUrl(URL.createObjectURL(file));
-    setPdfSummary(null);
 
     const chunkText = (text: string, maxLen: number): string[] => {
       const chunks: string[] = [];
@@ -238,126 +273,107 @@ export function WavyPDF() {
           const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
           
           setStatusMessage("Extracting text from PDF...");
-          const textResponse = await ai.models.generateContent({
-            model: "gemini-3.1-pro-preview",
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  { text: "Extract the main text from this document, suitable for narration. Pay close attention to complex layouts and multi-column formats, ensuring the text is read in the correct logical order (e.g., top-to-bottom, left-to-right within columns). Exclude page numbers, headers, footers, and complex tables. Ensure special characters, acronyms, and symbols are expanded or formatted in a way that sounds natural when read aloud. Just provide the clean, continuous text to be read aloud." },
-                  { inlineData: { data: base64Data, mimeType: "application/pdf" } }
-                ]
-              }
-            ]
-          });
+          let extractedText = "";
           
-          const extractedText = textResponse.text;
-          if (!extractedText) throw new Error("Failed to extract text from PDF");
-
-          setPdfSummary(extractedText.substring(0, 400) + "...");
-          
-          const chunks = chunkText(extractedText, maxChars);
-          
-          setStatusMessage(`Generating audio for ${chunks.length} segments...`);
-
-          const processChunk = async (chunk: string, index: number) => {
-            const audioResponse = await ai.models.generateContent({
-              model: "gemini-2.5-flash-preview-tts",
-              contents: [{ parts: [{ text: chunk }] }],
-              config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                  voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: selectedVoice },
-                  },
-                },
-              },
+          try {
+            const textResponse = await ai.models.generateContent({
+              model: "gemini-3.1-pro-preview",
+              contents: [
+                {
+                  role: "user",
+                  parts: [
+                    { text: "You are an expert document parser. Extract the main text from this document so it can be read aloud as an audiobook. Follow these rules strictly:\n1. Read in the correct logical order (top-to-bottom, left-to-right within columns).\n2. Exclude page numbers, headers, footers, and complex data tables.\n3. Expand special characters, acronyms, and symbols so they sound natural when spoken (e.g., '$50' becomes 'fifty dollars', '&' becomes 'and').\n4. Format the output as clean, continuous text with appropriate paragraph breaks.\n5. If there are clear section or chapter headings, preserve them and prefix them with '[CHAPTER: Title]' to help with chapter navigation." },
+                    { inlineData: { data: base64Data, mimeType: "application/pdf" } }
+                  ]
+                }
+              ]
             });
-            
-            const base64Audio = audioResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-            if (!base64Audio) throw new Error(`Failed to generate audio for chunk ${index + 1}`);
+            extractedText = textResponse.text || "";
+          } catch (e) {
+            console.warn("Gemini extraction failed, falling back to pdfjs", e);
+          }
 
-            const binary = atob(base64Audio);
-            const bytes = new Uint8Array(binary.length);
-            for (let j = 0; j < binary.length; j++) {
-              bytes[j] = binary.charCodeAt(j);
-              // Yield occasionally to keep UI responsive
-              if (j % 100000 === 0) {
-                await new Promise(resolve => setTimeout(resolve, 0));
+          if (!extractedText || extractedText.trim().length === 0) {
+            setStatusMessage("Falling back to local text extraction...");
+            try {
+              const arrayBuffer = await file.arrayBuffer();
+              const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+              const numPages = pdf.numPages;
+              let fullText = '';
+              for (let i = 1; i <= numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                
+                // Sort items by Y (descending) then X (ascending) to approximate reading order
+                const items = textContent.items as any[];
+                items.sort((a, b) => {
+                  const yA = a.transform[5];
+                  const yB = b.transform[5];
+                  if (Math.abs(yA - yB) < 5) {
+                    return a.transform[4] - b.transform[4];
+                  }
+                  return yB - yA;
+                });
+                
+                let pageText = '';
+                let lastY = null;
+                for (const item of items) {
+                  if (lastY !== null && Math.abs(lastY - item.transform[5]) > 5) {
+                    pageText += '\n';
+                  }
+                  pageText += item.str + ' ';
+                  lastY = item.transform[5];
+                }
+                
+                fullText += pageText + '\n\n';
               }
-            }
-            
-            // The Gemini API returns raw 16-bit PCM data (not a WAV/MP3 file with headers).
-            // Therefore, AudioContext.decodeAudioData will fail. 
-            // We can directly view the bytes as an Int16Array.
-            const int16Data = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
-            
-            return int16Data;
-          };
+              
+              setStatusMessage("Cleaning up extracted text...");
+              // Use Gemini to clean up the raw pdfjs text, fixing columns and special chars
+              const cleanupResponse = await ai.models.generateContent({
+                model: "gemini-3.1-pro-preview",
+                contents: `I have extracted raw text from a PDF, but the layout, columns, and special characters might be messed up. Please clean it up for audiobook narration.
+                
+Rules:
+1. Fix any column interleaving issues or broken sentences.
+2. Exclude page numbers, headers, footers, and complex data tables.
+3. Expand special characters, acronyms, and symbols so they sound natural when spoken.
+4. Format the output as clean, continuous text with appropriate paragraph breaks.
+5. If there are clear section or chapter headings, preserve them and prefix them with '[CHAPTER: Title]'.
 
-          const concurrencyLimit = 3;
-          // Notice we are now storing Int16Array (pure sound waves)
-          const results: Int16Array[] = new Array(chunks.length);
-          let currentIndex = 0;
-          let completedCount = 0;
-
-          const worker = async () => {
-            while (currentIndex < chunks.length) {
-              const index = currentIndex++;
-              results[index] = await processChunk(chunks[index], index);
-              completedCount++;
-              setStatusMessage(`Generated audio chunk ${completedCount} of ${chunks.length}...`);
-            }
-          };
-
-          const workers = [];
-          for (let i = 0; i < Math.min(concurrencyLimit, chunks.length); i++) {
-            workers.push(worker());
-          }
-          
-          await Promise.all(workers);
-
-          // 4. 0.5 seconds of silence at 24kHz = 12,000 samples
-          const silenceSamples = new Int16Array(12000);
-
-          // 5. Concatenate all PCM samples in correct order, adding silence
-          const totalLength = results.reduce((acc, curr) => acc + curr.length + silenceSamples.length, 0);
-          const mergedPcm = new Int16Array(totalLength);
-          let offset = 0;
-          
-          for (let i = 0; i < results.length; i++) {
-            const pcmChunk = results[i];
-            mergedPcm.set(pcmChunk, offset);
-            offset += pcmChunk.length;
-            mergedPcm.set(silenceSamples, offset);
-            offset += silenceSamples.length;
-            
-            // Yield to main thread every few chunks
-            if (i % 5 === 0) {
-              await new Promise(resolve => setTimeout(resolve, 0));
+Raw Text:
+${fullText.substring(0, 200000)}`
+              });
+              
+              extractedText = cleanupResponse.text || fullText;
+              
+            } catch (localErr) {
+              console.error("Local extraction also failed:", localErr);
             }
           }
 
-          setStatusMessage("Finalizing...");
-          
-          // 6. Convert back to Uint8Array for your utility functions
-          const finalBytes = new Uint8Array(mergedPcm.buffer);
-          const audioBlob = audioFormat === 'mp3' ? await pcmToMp3(finalBytes, 24000, 1) : await pcmToWav(finalBytes, 24000, 1);
-          const url = URL.createObjectURL(audioBlob);
+          if (!extractedText || extractedText.trim().length === 0) {
+            throw new Error("Failed to extract text from PDF. The document might be empty or scanned as images.");
+          }
 
-          setAudioUrl(url);
+          setExtractedText(extractedText);
+          detectChapters(extractedText);
+          setStep('review');
           setIsProcessing(false);
           setStatusMessage("");
+          
         } catch (err: any) {
           console.error(err);
           setError(getFriendlyErrorMessage(err));
           setIsProcessing(false);
+          setStep('idle');
           setStatusMessage("");
         }
       };
       reader.onerror = () => {
         setError("Failed to read file");
         setIsProcessing(false);
+        setStep('idle');
         setStatusMessage("");
       };
       reader.readAsDataURL(file);
@@ -365,7 +381,235 @@ export function WavyPDF() {
       console.error(err);
       setError(getFriendlyErrorMessage(err));
       setIsProcessing(false);
+      setStep('idle');
       setStatusMessage("");
+    }
+  };
+
+  const chunkText = (text: string, maxLen: number): string[] => {
+    const chunks: string[] = [];
+    let currentIndex = 0;
+    while (currentIndex < text.length) {
+      let nextIndex = currentIndex + maxLen;
+      if (nextIndex < text.length) {
+        const lastPeriod = text.lastIndexOf('.', nextIndex);
+        if (lastPeriod > currentIndex) {
+          nextIndex = lastPeriod + 1;
+        } else {
+          const lastSpace = text.lastIndexOf(' ', nextIndex);
+          if (lastSpace > currentIndex) {
+            nextIndex = lastSpace + 1;
+          }
+        }
+      }
+      chunks.push(text.substring(currentIndex, nextIndex).trim());
+      currentIndex = nextIndex;
+    }
+    return chunks.filter(c => c.length > 0);
+  };
+
+  const generateAudio = async () => {
+    setStep('generating');
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      
+      // Parse chapters
+      const chapterRegex = /\[CHAPTER:\s*(.*?)\]/g;
+      const chapters: { title: string, text: string }[] = [];
+      let lastIndex = 0;
+      let currentTitle = "Introduction";
+      
+      let match;
+      while ((match = chapterRegex.exec(extractedText)) !== null) {
+        if (match.index > lastIndex) {
+          const text = extractedText.substring(lastIndex, match.index).trim();
+          if (text) {
+            chapters.push({ title: currentTitle, text });
+          }
+        }
+        currentTitle = match[1];
+        lastIndex = match.index + match[0].length;
+      }
+      
+      const remainingText = extractedText.substring(lastIndex).trim();
+      if (remainingText) {
+        chapters.push({ title: currentTitle, text: remainingText });
+      }
+
+      if (chapters.length === 0) {
+        chapters.push({ title: "Full Document", text: extractedText });
+      }
+
+      const newPlaylist: {title: string, url: string, blob: Blob}[] = [];
+      let totalChunks = 0;
+      const chapterChunks = chapters.map(ch => {
+        const chunks = chunkText(ch.text, maxChars);
+        totalChunks += chunks.length;
+        return { ...ch, chunks };
+      });
+
+      setStatusMessage(`Generating audio for ${totalChunks} segments across ${chapters.length} chapters...`);
+      
+      let completedCount = 0;
+
+      const processChunk = async (chunk: string) => {
+        const audioResponse = await ai.models.generateContent({
+          model: "gemini-2.5-flash-preview-tts",
+          contents: [{ parts: [{ text: chunk }] }],
+          config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: selectedVoice },
+              },
+            },
+          },
+        });
+        
+        const base64Audio = audioResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (!base64Audio) throw new Error(`Failed to generate audio for chunk`);
+
+        const binary = atob(base64Audio);
+        const bytes = new Uint8Array(binary.length);
+        for (let j = 0; j < binary.length; j++) {
+          bytes[j] = binary.charCodeAt(j);
+          if (j % 100000 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
+        
+        return new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+      };
+
+      for (const chapter of chapterChunks) {
+        const results: Int16Array[] = new Array(chapter.chunks.length);
+        let currentIndex = 0;
+
+        const worker = async () => {
+          while (currentIndex < chapter.chunks.length) {
+            const index = currentIndex++;
+            results[index] = await processChunk(chapter.chunks[index]);
+            completedCount++;
+            setStatusMessage(`Generated audio chunk ${completedCount} of ${totalChunks}...`);
+          }
+        };
+
+        const workers = [];
+        const concurrencyLimit = 3;
+        for (let i = 0; i < Math.min(concurrencyLimit, chapter.chunks.length); i++) {
+          workers.push(worker());
+        }
+        
+        await Promise.all(workers);
+
+        const silenceSamples = new Int16Array(12000);
+        const totalLength = results.reduce((acc, curr) => acc + curr.length + silenceSamples.length, 0);
+        const mergedPcm = new Int16Array(totalLength);
+        let offset = 0;
+        
+        for (let i = 0; i < results.length; i++) {
+          const pcmChunk = results[i];
+          mergedPcm.set(pcmChunk, offset);
+          offset += pcmChunk.length;
+          mergedPcm.set(silenceSamples, offset);
+          offset += silenceSamples.length;
+          
+          if (i % 5 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
+
+        setStatusMessage(`Finalizing chapter: ${chapter.title}...`);
+        const finalBytes = new Uint8Array(mergedPcm.buffer);
+        const audioBlob = audioFormat === 'mp3' ? await pcmToMp3(finalBytes, 24000, 1) : await pcmToWav(finalBytes, 24000, 1);
+        const url = URL.createObjectURL(audioBlob);
+        
+        newPlaylist.push({ title: chapter.title, url, blob: audioBlob });
+      }
+
+      setPlaylist(newPlaylist);
+      setCurrentChapterIndex(0);
+      setAudioUrl(newPlaylist[0].url);
+      setStep('done');
+      setIsProcessing(false);
+      setStatusMessage("");
+
+    } catch (err: any) {
+      console.error(err);
+      setError(getFriendlyErrorMessage(err));
+      setIsProcessing(false);
+      setStep('review');
+      setStatusMessage("");
+    }
+  };
+
+  const saveToCloud = async () => {
+    if (!supabase) {
+      setCloudSaveStatus("Supabase is not configured. Please check your environment variables.");
+      return;
+    }
+
+    if (playlist.length === 0) {
+      setCloudSaveStatus("No audio generated yet.");
+      return;
+    }
+
+    setIsSavingToCloud(true);
+    setCloudSaveStatus("Saving to cloud...");
+
+    try {
+      const playlistId = crypto.randomUUID();
+      const uploadedChapters = [];
+
+      for (let i = 0; i < playlist.length; i++) {
+        const chapter = playlist[i];
+        if (!chapter.blob) continue;
+
+        const fileName = `${playlistId}/chapter_${i}.${audioFormat}`;
+        setCloudSaveStatus(`Uploading chapter ${i + 1} of ${playlist.length}...`);
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('audio-playlists')
+          .upload(fileName, chapter.blob, {
+            contentType: audioFormat === 'mp3' ? 'audio/mpeg' : 'audio/wav',
+            upsert: true
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage
+          .from('audio-playlists')
+          .getPublicUrl(fileName);
+
+        uploadedChapters.push({
+          title: chapter.title,
+          url: publicUrlData.publicUrl,
+          order: i
+        });
+      }
+
+      setCloudSaveStatus("Saving playlist metadata...");
+      const { error: dbError } = await supabase
+        .from('playlists')
+        .insert({
+          id: playlistId,
+          created_at: new Date().toISOString(),
+          chapters: uploadedChapters,
+          format: audioFormat
+        });
+
+      if (dbError) throw dbError;
+
+      setCloudSaveStatus("Successfully saved to cloud!");
+      setTimeout(() => setCloudSaveStatus(null), 3000);
+    } catch (err: any) {
+      console.error("Cloud save error:", err);
+      setCloudSaveStatus(`Failed to save: ${err.message}`);
+    } finally {
+      setIsSavingToCloud(false);
     }
   };
 
@@ -589,7 +833,6 @@ export function WavyPDF() {
                     setError(null);
                     setAudioUrl(null);
                     setPdfFileUrl(null);
-                    setPdfSummary(null);
                   }}
                   className="px-8 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full font-medium transition-colors border border-white/10"
                 >
@@ -664,9 +907,89 @@ export function WavyPDF() {
               animate={{ opacity: 1, y: 0 }}
               className="w-full max-w-4xl mt-8 flex flex-col gap-6"
             >
-              {audioUrl && !isProcessing && (
-                <div className="w-full max-w-md mx-auto p-4 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-sm" style={{ colorScheme: "dark" }}>
-                  <audio controls src={audioUrl} className="w-full h-12 outline-none" />
+              {step === 'done' && playlist.length > 0 && (
+                <div className="w-full max-w-2xl mx-auto p-6 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-sm flex flex-col gap-4">
+                  <div className="flex items-center justify-between px-2">
+                    <h3 className="text-white font-medium text-lg">Audio Chapters</h3>
+                    <div className="flex items-center gap-3">
+                      {cloudSaveStatus && (
+                        <span className="text-xs text-blue-400 animate-pulse">{cloudSaveStatus}</span>
+                      )}
+                      <button
+                        onClick={saveToCloud}
+                        disabled={isSavingToCloud}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 hover:text-blue-300 rounded-full text-xs font-medium transition-colors disabled:opacity-50"
+                      >
+                        {isSavingToCloud ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5" />}
+                        Save to Cloud
+                      </button>
+                      <span className="text-xs text-white/50 bg-black/40 px-2 py-1 rounded-md">
+                        {currentChapterIndex + 1} of {playlist.length}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-3 bg-black/20 p-2 rounded-2xl border border-white/5">
+                    <button 
+                      onClick={() => {
+                        if (currentChapterIndex > 0) {
+                          setCurrentChapterIndex(prev => prev - 1);
+                          setAudioUrl(playlist[currentChapterIndex - 1].url);
+                        }
+                      }}
+                      disabled={currentChapterIndex === 0}
+                      className="p-2 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-white/5 transition-colors text-white"
+                    >
+                      <SkipBack className="w-5 h-5" />
+                    </button>
+                    
+                    <div className="relative flex-1">
+                      <select
+                        value={currentChapterIndex}
+                        onChange={(e) => {
+                          const idx = Number(e.target.value);
+                          setCurrentChapterIndex(idx);
+                          setAudioUrl(playlist[idx].url);
+                        }}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 pl-4 pr-10 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 appearance-none cursor-pointer"
+                      >
+                        {playlist.map((chapter, idx) => (
+                          <option key={idx} value={idx} className="bg-zinc-900 text-white">
+                            {idx + 1}. {chapter.title}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/50">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                      </div>
+                    </div>
+                    
+                    <button 
+                      onClick={() => {
+                        if (currentChapterIndex < playlist.length - 1) {
+                          setCurrentChapterIndex(prev => prev + 1);
+                          setAudioUrl(playlist[currentChapterIndex + 1].url);
+                        }
+                      }}
+                      disabled={currentChapterIndex === playlist.length - 1}
+                      className="p-2 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-white/5 transition-colors text-white"
+                    >
+                      <SkipForward className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <audio 
+                    controls 
+                    src={audioUrl || undefined} 
+                    className="w-full h-12 outline-none mt-2" 
+                    autoPlay
+                    onEnded={() => {
+                      if (currentChapterIndex < playlist.length - 1) {
+                        setCurrentChapterIndex(prev => prev + 1);
+                        setAudioUrl(playlist[currentChapterIndex + 1].url);
+                      }
+                    }}
+                  />
                 </div>
               )}
 
@@ -674,23 +997,98 @@ export function WavyPDF() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
                   <div className="flex flex-col gap-3">
                     <h3 className="text-white/80 font-medium text-sm px-2">Document Preview</h3>
-                    <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40 h-80 relative">
-                      <iframe src={`${pdfFileUrl}#toolbar=0&navpanes=0&scrollbar=0`} className="w-full h-full absolute inset-0" title="PDF Preview" />
+                    <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40 h-96 relative flex items-center justify-center">
+                      <div className="w-full h-full overflow-y-auto overflow-x-hidden flex justify-center p-4">
+                        <Document 
+                          file={pdfFileUrl}
+                          loading={<Loader2 className="w-6 h-6 text-white/30 animate-spin my-auto" />}
+                          error={<span className="text-white/50 text-sm my-auto">Failed to load preview</span>}
+                        >
+                          <Page 
+                            pageNumber={1} 
+                            renderTextLayer={false} 
+                            renderAnnotationLayer={false}
+                            width={320}
+                            className="rounded-lg overflow-hidden shadow-lg"
+                          />
+                        </Document>
+                      </div>
                     </div>
                   </div>
                   <div className="flex flex-col gap-3">
-                    <h3 className="text-white/80 font-medium text-sm px-2">Text Extracted</h3>
-                    <div className="rounded-2xl p-6 border border-white/10 bg-white/5 h-80 overflow-y-auto text-sm text-white/70 leading-relaxed relative">
-                      {pdfSummary ? (
-                        <>
-                          <p>{pdfSummary}</p>
-                          <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-[#1a1a1a] to-transparent pointer-events-none rounded-b-2xl" />
-                        </>
-                      ) : (
-                        <div className="flex items-center justify-center h-full">
-                          <Loader2 className="w-6 h-6 text-white/30 animate-spin" />
+                    <div className="flex items-center justify-between px-2">
+                      <h3 className="text-white/80 font-medium text-sm">Review & Edit Chapters</h3>
+                      {step === 'review' && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => detectChapters(extractedText)}
+                            className="px-3 py-1.5 bg-white/10 text-white text-xs font-medium rounded-full hover:bg-white/20 transition-colors"
+                          >
+                            Auto-Detect
+                          </button>
+                          <button
+                            onClick={generateAudio}
+                            className="px-4 py-1.5 bg-white text-black text-xs font-bold rounded-full hover:bg-white/90 transition-colors"
+                          >
+                            Generate Audio
+                          </button>
                         </div>
                       )}
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 h-96 overflow-hidden relative flex flex-col">
+                      {step === 'extracting' ? (
+                        <div className="flex flex-col items-center justify-center h-full gap-3">
+                          <Loader2 className="w-6 h-6 text-white/30 animate-spin" />
+                          <span className="text-sm text-white/50">Extracting text...</span>
+                        </div>
+                      ) : step === 'review' || step === 'generating' || step === 'done' ? (
+                        <>
+                          <div className="p-3 bg-black/40 border-b border-white/10 text-xs text-white/50 leading-relaxed">
+                            Insert <code className="bg-white/10 px-1 py-0.5 rounded text-white/80">[CHAPTER: Title]</code> to split the audio into sections.
+                          </div>
+                          
+                          {suggestedChapters.length > 0 && step === 'review' && (
+                            <div className="p-3 bg-blue-500/10 border-b border-blue-500/20 flex flex-col gap-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-blue-400 font-medium">Suggested Chapter Breaks:</span>
+                                <button onClick={() => setSuggestedChapters([])} className="text-xs text-blue-400/70 hover:text-blue-400">Dismiss All</button>
+                              </div>
+                              <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto">
+                                {suggestedChapters.map((sug, i) => (
+                                  <div key={i} className="flex items-center gap-2 bg-black/40 px-2 py-1 rounded border border-blue-500/20 text-xs text-white/80">
+                                    <span className="truncate max-w-[200px]" title={sug.text}>{sug.text}</span>
+                                    <button 
+                                      onClick={() => {
+                                        setExtractedText(prev => prev.replace(sug.text, `[CHAPTER: ${sug.text}]`));
+                                        setSuggestedChapters(prev => prev.filter(s => s.text !== sug.text));
+                                      }}
+                                      className="text-green-400 hover:text-green-300 font-medium px-1"
+                                    >
+                                      Accept
+                                    </button>
+                                    <button 
+                                      onClick={() => {
+                                        setSuggestedChapters(prev => prev.filter(s => s.text !== sug.text));
+                                      }}
+                                      className="text-red-400 hover:text-red-300 font-medium px-1"
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <textarea
+                            value={extractedText}
+                            onChange={(e) => setExtractedText(e.target.value)}
+                            disabled={step !== 'review'}
+                            className="w-full flex-1 bg-transparent p-4 text-sm text-white/80 leading-relaxed resize-none outline-none focus:ring-2 focus:ring-white/20 transition-all disabled:opacity-50"
+                            placeholder="Extracted text will appear here..."
+                          />
+                        </>
+                      ) : null}
                     </div>
                   </div>
                 </div>
