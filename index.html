@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Google AI Studio App</title>
     <script>
-      // Fix for lamejs "MPEGMode is not defined" error in Vite
+      // Fix for lamejs "MPEGMode is not defined" and "Lame is not defined" errors in Vite
       function MPEGMode(ordinal) {
           var _ordinal = ordinal;
           this.ordinal = function () {
@@ -18,6 +18,22 @@
       MPEGMode.MONO = new MPEGMode(3);
       MPEGMode.NOT_SET = new MPEGMode(4);
       window.MPEGMode = MPEGMode;
+
+      window.Lame = {
+          LAME_ID: 0xFFF88E3B,
+          V9: 410, V8: 420, V7: 430, V6: 440, V5: 450, V4: 460, V3: 470, V2: 480, V1: 490, V0: 500,
+          R3MIX: 1000, STANDARD: 1001, EXTREME: 1002, INSANE: 1003,
+          STANDARD_FAST: 1004, EXTREME_FAST: 1005, MEDIUM: 1006, MEDIUM_FAST: 1007,
+          LAME_MAXMP3BUFFER: 16384
+      };
+
+      window.LameInternalFlags = {
+          MFSIZE: 3984, // 3 * 1152 + 576 - 48
+          MAX_HEADER_BUF: 256,
+          MAX_BITS_PER_CHANNEL: 4095,
+          MAX_BITS_PER_GRANULE: 7680,
+          BPC: 320
+      };
     </script>
   </head>
   <body>

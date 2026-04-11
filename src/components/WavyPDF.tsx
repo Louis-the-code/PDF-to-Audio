@@ -239,12 +239,12 @@ export function WavyPDF() {
           
           setStatusMessage("Extracting text from PDF...");
           const textResponse = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
+            model: "gemini-3.1-pro-preview",
             contents: [
               {
                 role: "user",
                 parts: [
-                  { text: "Extract the main text from this document, suitable for narration. Exclude page numbers, headers, footers, and complex tables. Just provide the clean text to be read aloud." },
+                  { text: "Extract the main text from this document, suitable for narration. Pay close attention to complex layouts and multi-column formats, ensuring the text is read in the correct logical order (e.g., top-to-bottom, left-to-right within columns). Exclude page numbers, headers, footers, and complex tables. Ensure special characters, acronyms, and symbols are expanded or formatted in a way that sounds natural when read aloud. Just provide the clean, continuous text to be read aloud." },
                   { inlineData: { data: base64Data, mimeType: "application/pdf" } }
                 ]
               }
