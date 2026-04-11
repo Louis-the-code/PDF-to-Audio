@@ -7,7 +7,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function pcmToMp3(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Blob {
+export async function pcmToMp3(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Promise<Blob> {
   const mp3encoder = new lamejs.Mp3Encoder(numChannels, sampleRate, 128); // 128kbps
   const mp3Data: Int8Array[] = [];
   
@@ -15,12 +15,18 @@ export function pcmToMp3(pcmData: Uint8Array, sampleRate: number = 24000, numCha
   const int16Data = new Int16Array(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength / 2);
   
   const sampleBlockSize = 1152;
+  let iterations = 0;
   
   for (let i = 0; i < int16Data.length; i += sampleBlockSize) {
     const sampleChunk = int16Data.subarray(i, i + sampleBlockSize);
     const mp3buf = mp3encoder.encodeBuffer(sampleChunk);
     if (mp3buf.length > 0) {
       mp3Data.push(mp3buf);
+    }
+    
+    // Yield to the main thread every 100 iterations (~115k samples) to keep UI responsive
+    if (++iterations % 100 === 0) {
+      await new Promise(resolve => setTimeout(resolve, 0));
     }
   }
   
@@ -32,7 +38,7 @@ export function pcmToMp3(pcmData: Uint8Array, sampleRate: number = 24000, numCha
   return new Blob(mp3Data, { type: 'audio/mp3' });
 }
 
-export function pcmToWav(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Blob {
+export async function pcmToWav(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Promise<Blob> {
   const byteRate = sampleRate * numChannels * 2;
   const blockAlign = numChannels * 2;
   const dataSize = pcmData.length;
@@ -58,6 +64,9 @@ export function pcmToWav(pcmData: Uint8Array, sampleRate: number = 24000, numCha
   view.setUint16(34, 16, true);
   writeString(view, 36, 'data');
   view.setUint32(40, dataSize, true);
+
+  // Yield before the large memory copy
+  await new Promise(resolve => setTimeout(resolve, 0));
 
   const pcmView = new Uint8Array(buffer, 44);
   pcmView.set(pcmData);

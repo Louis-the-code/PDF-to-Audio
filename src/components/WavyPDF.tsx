@@ -105,7 +105,7 @@ export function WavyPDF() {
       for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i);
       }
-      const wavBlob = pcmToWav(bytes, 24000, 1);
+      const wavBlob = await pcmToWav(bytes, 24000, 1);
       const url = URL.createObjectURL(wavBlob);
 
       setPreviewCache(prev => ({ ...prev, [voice]: url }));
@@ -281,6 +281,10 @@ export function WavyPDF() {
             const bytes = new Uint8Array(binary.length);
             for (let j = 0; j < binary.length; j++) {
               bytes[j] = binary.charCodeAt(j);
+              // Yield occasionally to keep UI responsive
+              if (j % 100000 === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+              }
             }
             
             // The Gemini API returns raw 16-bit PCM data (not a WAV/MP3 file with headers).
@@ -321,18 +325,24 @@ export function WavyPDF() {
           const mergedPcm = new Int16Array(totalLength);
           let offset = 0;
           
-          for (const pcmChunk of results) {
+          for (let i = 0; i < results.length; i++) {
+            const pcmChunk = results[i];
             mergedPcm.set(pcmChunk, offset);
             offset += pcmChunk.length;
             mergedPcm.set(silenceSamples, offset);
             offset += silenceSamples.length;
+            
+            // Yield to main thread every few chunks
+            if (i % 5 === 0) {
+              await new Promise(resolve => setTimeout(resolve, 0));
+            }
           }
 
           setStatusMessage("Finalizing...");
           
           // 6. Convert back to Uint8Array for your utility functions
           const finalBytes = new Uint8Array(mergedPcm.buffer);
-          const audioBlob = audioFormat === 'mp3' ? pcmToMp3(finalBytes, 24000, 1) : pcmToWav(finalBytes, 24000, 1);
+          const audioBlob = audioFormat === 'mp3' ? await pcmToMp3(finalBytes, 24000, 1) : await pcmToWav(finalBytes, 24000, 1);
           const url = URL.createObjectURL(audioBlob);
 
           setAudioUrl(url);
