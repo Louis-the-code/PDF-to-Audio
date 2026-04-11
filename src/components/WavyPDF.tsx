@@ -561,6 +561,9 @@ ${fullText.substring(0, 200000)}`
     setCloudSaveStatus("Saving to cloud...");
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("You must be logged in to save to the cloud.");
+
       const playlistId = crypto.randomUUID();
       const uploadedChapters = [];
 
@@ -568,7 +571,8 @@ ${fullText.substring(0, 200000)}`
         const chapter = playlist[i];
         if (!chapter.blob) continue;
 
-        const fileName = `${playlistId}/chapter_${i}.${audioFormat}`;
+        // Save to a user-specific folder
+        const fileName = `${user.id}/${playlistId}/chapter_${i}.${audioFormat}`;
         setCloudSaveStatus(`Uploading chapter ${i + 1} of ${playlist.length}...`);
 
         const { data: uploadData, error: uploadError } = await supabase.storage
@@ -596,6 +600,7 @@ ${fullText.substring(0, 200000)}`
         .from('playlists')
         .insert({
           id: playlistId,
+          user_id: user.id,
           created_at: new Date().toISOString(),
           chapters: uploadedChapters,
           format: audioFormat
