@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Loader2, Mail, Lock, ArrowRight } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
+
+import ShaderBackground from './ui/ShaderBackground';
 
 export function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -35,78 +37,113 @@ export function Auth() {
     }
   };
 
+  const containerVariants = {
+    hidden: { opacity: 0, scale: 0.95 },
+    visible: { 
+      opacity: 1, 
+      scale: 1,
+      transition: { 
+        stiffness: 300,
+        damping: 30,
+        staggerChildren: 0.1 
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 10 },
+    visible: { opacity: 1, y: 0, transition: { stiffness: 300, damping: 30 } }
+  };
+
   return (
-    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 font-sans selection:bg-white/30">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-600/20 blur-[120px]" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-purple-600/20 blur-[120px]" />
-      </div>
+    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 font-sans selection:bg-white/30 relative overflow-hidden">
+      {/* Animated Background */}
+      <ShaderBackground />
 
       <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md bg-white/5 border border-white/10 p-8 rounded-3xl backdrop-blur-xl relative z-10"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="w-full max-w-md bg-white/5 border border-white/10 p-8 sm:p-10 rounded-[2rem] backdrop-blur-2xl relative z-10 shadow-2xl shadow-black/50"
       >
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold tracking-tight mb-2">WavyPDF</h1>
-          <p className="text-white/50 text-sm">
+        <motion.div variants={itemVariants} className="text-center mb-10">
+          <div className="w-16 h-16 mx-auto bg-gradient-to-br from-blue-500 to-purple-500 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-500/20">
+            <div className="w-6 h-6 bg-white rounded-full" />
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight mb-3">WavyPDF</h1>
+          <p className="text-white/60 text-sm">
             {isLogin ? 'Welcome back to your audiobook library.' : 'Create an account to save your audiobooks to the cloud.'}
           </p>
-        </div>
+        </motion.div>
 
-        <form onSubmit={handleAuth} className="space-y-4">
-          {error && (
-            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
-              {error}
-            </div>
-          )}
-          {message && (
-            <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-xl text-green-400 text-sm">
-              {message}
-            </div>
-          )}
+        <form onSubmit={handleAuth} className="space-y-5">
+          <AnimatePresence mode="wait">
+            {error && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0, y: -10 }}
+                animate={{ opacity: 1, height: 'auto', y: 0 }}
+                exit={{ opacity: 0, height: 0, y: -10 }}
+                className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-sm overflow-hidden"
+              >
+                {error}
+              </motion.div>
+            )}
+            {message && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0, y: -10 }}
+                animate={{ opacity: 1, height: 'auto', y: 0 }}
+                exit={{ opacity: 0, height: 0, y: -10 }}
+                className="p-4 bg-green-500/10 border border-green-500/20 rounded-2xl text-green-400 text-sm overflow-hidden"
+              >
+                {message}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          <div className="space-y-1">
+          <motion.div variants={itemVariants} className="space-y-1.5">
             <label className="text-xs font-medium text-white/70 ml-1">Email</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+            <div className="relative group">
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 group-focus-within:text-white/80 transition-colors" />
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 transition-all"
+                className="w-full bg-black/40 border border-white/10 rounded-2xl py-3.5 pl-11 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 focus:bg-white/5 transition-all"
                 placeholder="you@example.com"
               />
             </div>
-          </div>
+          </motion.div>
 
-          <div className="space-y-1">
+          <motion.div variants={itemVariants} className="space-y-1.5">
             <label className="text-xs font-medium text-white/70 ml-1">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+            <div className="relative group">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 group-focus-within:text-white/80 transition-colors" />
               <input
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 transition-all"
+                className="w-full bg-black/40 border border-white/10 rounded-2xl py-3.5 pl-11 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 focus:bg-white/5 transition-all"
                 placeholder="••••••••"
               />
             </div>
-          </div>
+          </motion.div>
 
-          <button
+          <motion.button
+            variants={itemVariants}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             type="submit"
             disabled={loading}
-            className="w-full bg-white text-black font-semibold rounded-xl py-2.5 flex items-center justify-center gap-2 hover:bg-white/90 transition-all disabled:opacity-50 mt-6"
+            className="w-full bg-white text-black font-semibold rounded-2xl py-3.5 flex items-center justify-center gap-2 hover:bg-white/90 transition-all disabled:opacity-50 mt-8 shadow-[0_0_20px_rgba(255,255,255,0.1)]"
           >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (isLogin ? 'Sign In' : 'Create Account')}
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (isLogin ? 'Sign In' : 'Create Account')}
             {!loading && <ArrowRight className="w-4 h-4" />}
-          </button>
+          </motion.button>
         </form>
 
-        <div className="mt-6 text-center">
+        <motion.div variants={itemVariants} className="mt-8 text-center">
           <button
             type="button"
             onClick={() => setIsLogin(!isLogin)}
@@ -114,7 +151,7 @@ export function Auth() {
           >
             {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
           </button>
-        </div>
+        </motion.div>
       </motion.div>
     </div>
   );

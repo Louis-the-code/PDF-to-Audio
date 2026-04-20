@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, ChangeEvent } from "react";
 import { motion } from "motion/react";
 import { Upload, AlertCircle, Volume2, Loader2, SkipBack, SkipForward, Cloud } from "lucide-react";
 import { AnimatedDownloadButton } from "./ui/AnimatedDownloadButton";
+import { CustomAudioPlayer } from "./ui/CustomAudioPlayer";
 import { pcmToWav, pcmToMp3 } from "../lib/utils";
 import { GoogleGenAI, Modality } from "@google/genai";
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -84,10 +85,13 @@ export function WavyPDF() {
   const [dragCounter, setDragCounter] = useState(0);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const [previewCache, setPreviewCache] = useState<Record<string, string>>({});
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [loadingPreviewVoice, setLoadingPreviewVoice] = useState<string | null>(null);
   const [pdfFileUrl, setPdfFileUrl] = useState<string | null>(null);
   
-  const voices = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
+  const voiceGroups = [
+    { category: 'Male', voices: ['Puck', 'Charon', 'Fenrir'] },
+    { category: 'Female', voices: ['Kore', 'Aoede', 'Zephyr'] }
+  ];
 
   useEffect(() => {
     localStorage.setItem('wavy_voice', selectedVoice);
@@ -114,7 +118,7 @@ export function WavyPDF() {
       return;
     }
 
-    setIsPreviewLoading(true);
+    setLoadingPreviewVoice(voice);
     try {
       const text = `Hello, my name is ${voice}.`;
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -153,7 +157,7 @@ export function WavyPDF() {
       console.error("Preview error:", err);
       setError(getFriendlyErrorMessage(err));
     } finally {
-      setIsPreviewLoading(false);
+      setLoadingPreviewVoice(null);
     }
   };
 
@@ -176,6 +180,15 @@ export function WavyPDF() {
   useEffect(() => {
     let removeClick: (() => void) | null = null;
     let destroyed = false;
+
+    // Helper to generate random colors
+    const randomColors = (count: number) => {
+      const colors = [];
+      for (let i = 0; i < count; i++) {
+        colors.push('#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'));
+      }
+      return colors;
+    };
 
     (async () => {
       const mod = await import(
@@ -276,19 +289,37 @@ export function WavyPDF() {
           let extractedText = "";
           
           try {
-            const textResponse = await ai.models.generateContent({
-              model: "gemini-3.1-pro-preview",
-              contents: [
-                {
-                  role: "user",
-                  parts: [
-                    { text: "You are an expert document parser. Extract the main text from this document so it can be read aloud as an audiobook. Follow these rules strictly:\n1. Read in the correct logical order (top-to-bottom, left-to-right within columns).\n2. Exclude page numbers, headers, footers, and complex data tables.\n3. Expand special characters, acronyms, and symbols so they sound natural when spoken (e.g., '$50' becomes 'fifty dollars', '&' becomes 'and').\n4. Format the output as clean, continuous text with appropriate paragraph breaks.\n5. If there are clear section or chapter headings, preserve them and prefix them with '[CHAPTER: Title]' to help with chapter navigation." },
-                    { inlineData: { data: base64Data, mimeType: "application/pdf" } }
+            const extractWithRetry = async (retries = 3): Promise<string> => {
+              try {
+                const textResponse = await ai.models.generateContent({
+                  model: "gemini-3.1-pro-preview",
+                  contents: [
+                    {
+                      role: "user",
+                      parts: [
+                        { text: "You are an expert document parser. Extract the main text from this document so it can be read aloud as an audiobook. Follow these rules strictly:\n1. Read in the correct logical order (top-to-bottom, left-to-right within columns).\n2. Exclude page numbers, headers, footers, and complex data tables.\n3. Expand special characters, acronyms, and symbols so they sound natural when spoken (e.g., '$50' becomes 'fifty dollars', '&' becomes 'and').\n4. Format the output as clean, continuous text with appropriate paragraph breaks.\n5. If there are clear section or chapter headings, preserve them and prefix them with '[CHAPTER: Title]' to help with chapter navigation." },
+                        { inlineData: { data: base64Data, mimeType: "application/pdf" } }
+                      ]
+                    }
                   ]
+                });
+                return textResponse.text || "";
+              } catch (err: any) {
+                if (retries > 0) {
+                  const errorMsg = err?.message?.toLowerCase() || "";
+                  const isRateLimit = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("exhausted");
+                  const delay = isRateLimit ? (4 - retries) * 15000 : 2000;
+                  console.warn(`Extraction failed, retrying in ${delay}ms... (${retries} left)`, err);
+                  setStatusMessage(`Rate limit reached. Waiting ${delay / 1000}s before retrying...`);
+                  await new Promise(r => setTimeout(r, delay));
+                  setStatusMessage("Extracting text from PDF...");
+                  return extractWithRetry(retries - 1);
                 }
-              ]
-            });
-            extractedText = textResponse.text || "";
+                throw err;
+              }
+            };
+            
+            extractedText = await extractWithRetry();
           } catch (e) {
             console.warn("Gemini extraction failed, falling back to pdfjs", e);
           }
@@ -330,10 +361,13 @@ export function WavyPDF() {
               
               setStatusMessage("Cleaning up extracted text...");
               // Use Gemini to clean up the raw pdfjs text, fixing columns and special chars
-              const cleanupResponse = await ai.models.generateContent({
-                model: "gemini-3.1-pro-preview",
-                contents: `I have extracted raw text from a PDF, but the layout, columns, and special characters might be messed up. Please clean it up for audiobook narration.
-                
+              try {
+                const cleanupWithRetry = async (retries = 3): Promise<string> => {
+                  try {
+                    const cleanupResponse = await ai.models.generateContent({
+                      model: "gemini-3.1-pro-preview",
+                      contents: `I have extracted raw text from a PDF, but the layout, columns, and special characters might be messed up. Please clean it up for audiobook narration.
+                      
 Rules:
 1. Fix any column interleaving issues or broken sentences.
 2. Exclude page numbers, headers, footers, and complex data tables.
@@ -342,10 +376,29 @@ Rules:
 5. If there are clear section or chapter headings, preserve them and prefix them with '[CHAPTER: Title]'.
 
 Raw Text:
-${fullText.substring(0, 200000)}`
-              });
-              
-              extractedText = cleanupResponse.text || fullText;
+${fullText.substring(0, 100000)}` // Reduced to 100k chars to prevent payload too large errors
+                    });
+                    return cleanupResponse.text || fullText;
+                  } catch (err: any) {
+                    if (retries > 0) {
+                      const errorMsg = err?.message?.toLowerCase() || "";
+                      const isRateLimit = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("exhausted");
+                      const delay = isRateLimit ? (4 - retries) * 15000 : 2000;
+                      console.warn(`Cleanup failed, retrying in ${delay}ms... (${retries} left)`, err);
+                      setStatusMessage(`Rate limit reached. Waiting ${delay / 1000}s before retrying...`);
+                      await new Promise(r => setTimeout(r, delay));
+                      setStatusMessage("Cleaning up extracted text...");
+                      return cleanupWithRetry(retries - 1);
+                    }
+                    throw err;
+                  }
+                };
+                
+                extractedText = await cleanupWithRetry();
+              } catch (e) {
+                console.warn("Gemini cleanup failed, using raw pdfjs text", e);
+                extractedText = fullText;
+              }
               
             } catch (localErr) {
               console.error("Local extraction also failed:", localErr);
@@ -455,33 +508,49 @@ ${fullText.substring(0, 200000)}`
       
       let completedCount = 0;
 
-      const processChunk = async (chunk: string) => {
-        const audioResponse = await ai.models.generateContent({
-          model: "gemini-2.5-flash-preview-tts",
-          contents: [{ parts: [{ text: chunk }] }],
-          config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: selectedVoice },
+      const processChunk = async (chunk: string, retries = 5): Promise<Int16Array> => {
+        try {
+          const audioResponse = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: [{ parts: [{ text: chunk }] }],
+            config: {
+              responseModalities: [Modality.AUDIO],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: selectedVoice },
+                },
               },
             },
-          },
-        });
-        
-        const base64Audio = audioResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64Audio) throw new Error(`Failed to generate audio for chunk`);
+          });
+          
+          const base64Audio = audioResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+          if (!base64Audio) throw new Error(`Failed to generate audio for chunk`);
 
-        const binary = atob(base64Audio);
-        const bytes = new Uint8Array(binary.length);
-        for (let j = 0; j < binary.length; j++) {
-          bytes[j] = binary.charCodeAt(j);
-          if (j % 100000 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 0));
+          const binary = atob(base64Audio);
+          const bytes = new Uint8Array(binary.length);
+          for (let j = 0; j < binary.length; j++) {
+            bytes[j] = binary.charCodeAt(j);
+            if (j % 100000 === 0) {
+              await new Promise(resolve => setTimeout(resolve, 0));
+            }
           }
+          
+          return new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+        } catch (error: any) {
+          if (retries > 0) {
+            const errorMsg = error?.message?.toLowerCase() || "";
+            const isRateLimit = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("exhausted");
+            // Wait 15s for rate limits, 2s for other errors. Increase delay on subsequent retries.
+            const delay = isRateLimit ? (6 - retries) * 15000 : 2000; 
+            
+            console.warn(`TTS generation failed, retrying in ${delay}ms... (${retries} attempts left)`, error);
+            setStatusMessage(`Rate limit reached. Waiting ${delay / 1000}s before retrying...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            setStatusMessage(`Generating audio for ${totalChunks} segments across ${chapters.length} chapters...`);
+            return processChunk(chunk, retries - 1);
+          }
+          throw error;
         }
-        
-        return new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
       };
 
       for (const chapter of chapterChunks) {
@@ -498,7 +567,7 @@ ${fullText.substring(0, 200000)}`
         };
 
         const workers = [];
-        const concurrencyLimit = 3;
+        const concurrencyLimit = 1; // Reduced concurrency to prevent XHR/500 errors
         for (let i = 0; i < Math.min(concurrencyLimit, chapter.chunks.length); i++) {
           workers.push(worker());
         }
@@ -662,10 +731,10 @@ ${fullText.substring(0, 200000)}`
   return (
     <div 
       ref={containerRef}
-      className="relative min-h-screen w-full bg-black flex flex-col items-center justify-center overflow-hidden"
+      className="relative min-h-screen w-full bg-transparent flex flex-col items-center justify-center overflow-hidden"
     >
       {/* Tubes Cursor Canvas */}
-      <canvas ref={canvasRef} className="absolute inset-0 z-0 block h-full w-full" />
+      <canvas ref={canvasRef} className="absolute inset-0 z-0 block h-full w-full pointer-events-none" />
 
       {/* Mouse-sensitive Matrix Gradient Overlay */}
       <div 
@@ -721,36 +790,50 @@ ${fullText.substring(0, 200000)}`
           >
             {/* Voice Selection */}
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <label className="text-sm font-medium text-white/80">Voice Persona</label>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    playVoicePreview(selectedVoice);
-                  }}
-                  disabled={isPreviewLoading}
-                  className="flex items-center gap-2 text-xs font-medium text-white/60 hover:text-white transition-colors disabled:opacity-50"
-                >
-                  {isPreviewLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Volume2 className="w-3 h-3" />}
-                  Preview {selectedVoice}
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {voices.map(voice => (
-                  <button
-                    key={voice}
-                    onClick={() => {
-                      setSelectedVoice(voice);
-                      playVoicePreview(voice);
-                    }}
-                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
-                      selectedVoice === voice 
-                        ? 'bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.4)]' 
-                        : 'bg-white/5 text-white/70 hover:bg-white/15 border border-white/5'
-                    }`}
-                  >
-                    {voice}
-                  </button>
+              <label className="text-sm font-medium text-white/80 mb-4 block">Voice Persona</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {voiceGroups.map(group => (
+                  <div key={group.category} className="flex flex-col gap-3">
+                    <span className="text-xs font-semibold text-white/40 uppercase tracking-wider pl-1">
+                      {group.category} Voices
+                    </span>
+                    <div className="flex flex-col gap-2">
+                      {group.voices.map(voice => (
+                        <div
+                          key={voice}
+                          onClick={() => setSelectedVoice(voice)}
+                          className={`relative flex items-center justify-between p-3 rounded-2xl border transition-all duration-300 cursor-pointer group ${
+                            selectedVoice === voice 
+                              ? 'bg-white/10 border-white/30 shadow-[0_0_20px_rgba(255,255,255,0.1)]' 
+                              : 'bg-black/40 border-white/5 hover:bg-white/5 hover:border-white/15'
+                          }`}
+                        >
+                          <span className={`text-sm font-medium ${selectedVoice === voice ? 'text-white' : 'text-white/70'}`}>
+                            {voice}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              playVoicePreview(voice);
+                            }}
+                            disabled={loadingPreviewVoice === voice}
+                            className={`p-2 rounded-full transition-colors ${
+                              selectedVoice === voice 
+                                ? 'bg-white/20 text-white hover:bg-white/30' 
+                                : 'bg-white/5 text-white/50 hover:bg-white/15 hover:text-white'
+                            }`}
+                            title={`Preview ${voice}`}
+                          >
+                            {loadingPreviewVoice === voice ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Volume2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -807,6 +890,7 @@ ${fullText.substring(0, 200000)}`
 
         {/* Upload & Download Actions */}
         <motion.div 
+          layout
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
@@ -822,6 +906,7 @@ ${fullText.substring(0, 200000)}`
             />
             {error ? (
               <motion.div
+                layout
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="flex flex-col items-center gap-6"
@@ -846,17 +931,21 @@ ${fullText.substring(0, 200000)}`
               </motion.div>
             ) : !hasFile ? (
               <motion.div 
+                layout
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className={`flex flex-col items-center justify-center gap-6 p-12 w-full rounded-3xl border-2 border-dashed transition-all duration-300 relative overflow-hidden group ${
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className={`flex flex-col items-center justify-center gap-6 p-12 w-full rounded-[2rem] border-2 border-dashed transition-all duration-300 relative overflow-hidden group cursor-pointer ${
                   isDragging 
-                    ? "border-white bg-white/10 scale-[1.02] shadow-[0_0_40px_rgba(255,255,255,0.2)]" 
-                    : "border-white/10 bg-black/20 hover:bg-white/5 hover:border-white/30"
+                    ? "border-white bg-white/10 shadow-[0_0_40px_rgba(255,255,255,0.2)]" 
+                    : "border-white/10 bg-black/20 hover:bg-white/5 hover:border-white/30 shadow-2xl shadow-black/50"
                 }`}
                 onDragEnter={handleDragEnter}
                 onDragLeave={handleDragLeave}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
               >
                 {isDragging && (
                   <>
@@ -895,47 +984,65 @@ ${fullText.substring(0, 200000)}`
                 </p>
               </motion.div>
             ) : (
-              <AnimatedDownloadButton 
-                isProcessing={isProcessing} 
-                audioUrl={audioUrl} 
-                error={error} 
-                statusMessage={statusMessage}
-                format={audioFormat}
-              />
+              <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <AnimatedDownloadButton 
+                  isProcessing={isProcessing} 
+                  audioUrl={audioUrl} 
+                  error={error} 
+                  statusMessage={statusMessage}
+                  format={audioFormat}
+                />
+              </motion.div>
             )}
           </div>
 
           {/* Audio Player & Preview */}
           {hasFile && !error && (
             <motion.div
+              layout
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               className="w-full max-w-4xl mt-8 flex flex-col gap-6"
             >
               {step === 'done' && playlist.length > 0 && (
-                <div className="w-full max-w-2xl mx-auto p-6 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-sm flex flex-col gap-4">
+                <motion.div 
+                  layout
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="w-full max-w-2xl mx-auto p-6 rounded-[2rem] bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl flex flex-col gap-5"
+                >
                   <div className="flex items-center justify-between px-2">
-                    <h3 className="text-white font-medium text-lg">Audio Chapters</h3>
+                    <h3 className="text-white font-semibold text-xl">Audio Chapters</h3>
                     <div className="flex items-center gap-3">
                       {cloudSaveStatus && (
-                        <span className="text-xs text-blue-400 animate-pulse">{cloudSaveStatus}</span>
+                        <motion.span 
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className="text-xs text-blue-400 animate-pulse font-medium"
+                        >
+                          {cloudSaveStatus}
+                        </motion.span>
                       )}
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
                         onClick={saveToCloud}
                         disabled={isSavingToCloud}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 hover:text-blue-300 rounded-full text-xs font-medium transition-colors disabled:opacity-50"
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 hover:text-blue-300 rounded-full text-sm font-bold transition-colors disabled:opacity-50 shadow-lg shadow-blue-500/10"
                       >
-                        {isSavingToCloud ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5" />}
+                        {isSavingToCloud ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" />}
                         Save to Cloud
-                      </button>
-                      <span className="text-xs text-white/50 bg-black/40 px-2 py-1 rounded-md">
+                      </motion.button>
+                      <span className="text-xs font-medium text-white/50 bg-black/40 px-3 py-1.5 rounded-lg border border-white/5">
                         {currentChapterIndex + 1} of {playlist.length}
                       </span>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-3 bg-black/20 p-2 rounded-2xl border border-white/5">
-                    <button 
+                  <div className="flex items-center gap-3 bg-black/40 p-2.5 rounded-2xl border border-white/5">
+                    <motion.button 
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => {
                         if (currentChapterIndex > 0) {
                           setCurrentChapterIndex(prev => prev - 1);
@@ -943,12 +1050,12 @@ ${fullText.substring(0, 200000)}`
                         }
                       }}
                       disabled={currentChapterIndex === 0}
-                      className="p-2 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-white/5 transition-colors text-white"
+                      className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-white/5 transition-colors text-white"
                     >
                       <SkipBack className="w-5 h-5" />
-                    </button>
+                    </motion.button>
                     
-                    <div className="relative flex-1">
+                    <div className="relative flex-1 group">
                       <select
                         value={currentChapterIndex}
                         onChange={(e) => {
@@ -956,7 +1063,7 @@ ${fullText.substring(0, 200000)}`
                           setCurrentChapterIndex(idx);
                           setAudioUrl(playlist[idx].url);
                         }}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 pl-4 pr-10 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 appearance-none cursor-pointer"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl p-3 pl-4 pr-10 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 appearance-none cursor-pointer group-hover:bg-white/10 transition-colors"
                       >
                         {playlist.map((chapter, idx) => (
                           <option key={idx} value={idx} className="bg-zinc-900 text-white">
@@ -964,12 +1071,14 @@ ${fullText.substring(0, 200000)}`
                           </option>
                         ))}
                       </select>
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/50">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/40 group-hover:text-white/70 transition-colors">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
                       </div>
                     </div>
                     
-                    <button 
+                    <motion.button 
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => {
                         if (currentChapterIndex < playlist.length - 1) {
                           setCurrentChapterIndex(prev => prev + 1);
@@ -977,25 +1086,25 @@ ${fullText.substring(0, 200000)}`
                         }
                       }}
                       disabled={currentChapterIndex === playlist.length - 1}
-                      className="p-2 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-white/5 transition-colors text-white"
+                      className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-white/5 transition-colors text-white"
                     >
                       <SkipForward className="w-5 h-5" />
-                    </button>
+                    </motion.button>
                   </div>
 
-                  <audio 
-                    controls 
-                    src={audioUrl || undefined} 
-                    className="w-full h-12 outline-none mt-2" 
-                    autoPlay
-                    onEnded={() => {
-                      if (currentChapterIndex < playlist.length - 1) {
-                        setCurrentChapterIndex(prev => prev + 1);
-                        setAudioUrl(playlist[currentChapterIndex + 1].url);
-                      }
-                    }}
-                  />
-                </div>
+                  <div className="pt-2">
+                    <CustomAudioPlayer 
+                      src={audioUrl || undefined} 
+                      autoPlay
+                      onEnded={() => {
+                        if (currentChapterIndex < playlist.length - 1) {
+                          setCurrentChapterIndex(prev => prev + 1);
+                          setAudioUrl(playlist[currentChapterIndex + 1].url);
+                        }
+                      }}
+                    />
+                  </div>
+                </motion.div>
               )}
 
               {pdfFileUrl && (
