@@ -1,7 +1,6 @@
 import dotenv from "dotenv";
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import { createApp } from "./server/app";
 import { createSupabaseVerifier } from "./server/auth";
 import { loadConfig } from "./server/config";
@@ -28,6 +27,8 @@ async function startServer() {
   const app = createApp({ config, verify, ai: createGeminiService(config) });
 
   if (process.env.NODE_ENV !== "production") {
+    // Imported lazily so production installs don't need vite at all.
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

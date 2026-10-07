@@ -3,11 +3,15 @@ import { supabase } from '../lib/supabase';
 import { Loader2, Trash2, Play, Calendar, ListMusic } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CustomAudioPlayer } from './ui/CustomAudioPlayer';
+import { AUDIO_BUCKET, SIGNED_URL_TTL_SECONDS, chapterPath } from '../lib/storage';
+import { errorMessage } from '../lib/errors';
 
 interface Chapter {
   title: string;
-  url: string;
   order: number;
+  /** Present on playlists saved by older versions; playback no longer relies on it. */
+  url?: string;
+  path?: string;
 }
 
 interface Playlist {
@@ -15,14 +19,19 @@ interface Playlist {
   user_id: string;
   created_at: string;
   format: string;
+  title?: string | null;
   chapters: Chapter[];
 }
+
+const playlistTitle = (p: Playlist) => p.title || p.chapters[0]?.title || 'Audiobook';
 
 export function Library() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activePlaylist, setActivePlaylist] = useState<Playlist | null>(null);
+  /** Time-limited playback URLs for the active playlist, by chapter index. */
+  const [activeUrls, setActiveUrls] = useState<string[]>([]);
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
 
   useEffect(() => {
@@ -43,49 +52,51 @@ export function Library() {
 
       if (error) throw error;
       setPlaylists(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching playlists:', err);
-      setError(err.message);
+      setError(errorMessage(err));
     } finally {
       setLoading(false);
     }
   };
 
+  const storagePaths = (playlist: Playlist) =>
+    playlist.chapters.map((_, i) => chapterPath(playlist.user_id, playlist.id, i, playlist.format));
+
   const deletePlaylist = async (playlist: Playlist) => {
     if (!window.confirm('Are you sure you want to delete this audiobook?')) return;
 
     try {
-      // 1. Delete files from storage
-      const filePaths = playlist.chapters.map(
-        (_, i) => `${playlist.user_id}/${playlist.id}/chapter_${i}.${playlist.format}`
-      );
-      
-      const { error: storageError } = await supabase!.storage
-        .from('audio-playlists')
-        .remove(filePaths);
+      // Files first: if this fails we keep the row, so the user can retry
+      // instead of being left with files nothing points to.
+      const { error: storageError } = await supabase!.storage.from(AUDIO_BUCKET).remove(storagePaths(playlist));
+      if (storageError) throw storageError;
 
-      if (storageError) console.error('Storage deletion error:', storageError);
-
-      // 2. Delete database record
-      const { error: dbError } = await supabase!
-        .from('playlists')
-        .delete()
-        .eq('id', playlist.id);
-
+      const { error: dbError } = await supabase!.from('playlists').delete().eq('id', playlist.id);
       if (dbError) throw dbError;
 
-      // 3. Update UI
       setPlaylists(prev => prev.filter(p => p.id !== playlist.id));
       if (activePlaylist?.id === playlist.id) {
         setActivePlaylist(null);
+        setActiveUrls([]);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting playlist:', err);
-      alert(`Failed to delete: ${err.message}`);
+      alert(`Failed to delete: ${errorMessage(err)}`);
     }
   };
 
-  const playPlaylist = (playlist: Playlist) => {
+  const playPlaylist = async (playlist: Playlist) => {
+    // Signed URLs work whether the bucket is public or private.
+    const { data, error: urlError } = await supabase!.storage
+      .from(AUDIO_BUCKET)
+      .createSignedUrls(storagePaths(playlist), SIGNED_URL_TTL_SECONDS);
+    if (urlError || !data) {
+      setError(`Could not load audio: ${urlError ? errorMessage(urlError) : 'no data'}`);
+      return;
+    }
+    setError(null);
+    setActiveUrls(data.map(entry => entry.signedUrl ?? ''));
     setActivePlaylist(playlist);
     setCurrentChapterIndex(0);
   };
@@ -182,8 +193,8 @@ export function Library() {
                         <ListMusic className="w-6 h-6 text-white/70" />
                       </div>
                       <div>
-                        <h3 className="font-semibold text-white text-lg truncate max-w-[160px]" title={playlist.chapters[0]?.title || "Audiobook"}>
-                          {playlist.chapters.length > 0 ? playlist.chapters[0].title : "Audiobook"}
+                        <h3 className="font-semibold text-white text-lg truncate max-w-[160px]" title={playlistTitle(playlist)}>
+                          {playlistTitle(playlist)}
                         </h3>
                         <div className="flex items-center gap-2 text-xs text-white/40 mt-1">
                           <Calendar className="w-3.5 h-3.5" />
@@ -193,8 +204,9 @@ export function Library() {
                     </div>
                     <button
                       onClick={() => deletePlaylist(playlist)}
-                      className="p-2 text-white/20 hover:text-red-400 hover:bg-red-500/10 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                      className="p-2 text-white/20 hover:text-red-400 hover:bg-red-500/10 rounded-full transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                       title="Delete"
+                      aria-label="Delete audiobook"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -277,7 +289,7 @@ export function Library() {
                         transition={{ duration: 0.2 }}
                       >
                         <CustomAudioPlayer 
-                          src={activePlaylist.chapters[currentChapterIndex]?.url} 
+                          src={activeUrls[currentChapterIndex] || undefined} 
                           autoPlay
                           onEnded={() => {
                             if (currentChapterIndex < activePlaylist.chapters.length - 1) {

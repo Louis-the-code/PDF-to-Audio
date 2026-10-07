@@ -42,7 +42,7 @@ export async function pcmToMp3(pcmData: Uint8Array, sampleRate: number = 24000, 
     mp3Data.push(mp3buf);
   }
   
-  return new Blob(mp3Data, { type: 'audio/mp3' });
+  return new Blob(mp3Data, { type: 'audio/mpeg' });
 }
 
 export async function pcmToWav(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Promise<Blob> {
