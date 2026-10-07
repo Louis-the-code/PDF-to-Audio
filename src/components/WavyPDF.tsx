@@ -3,8 +3,10 @@ import { motion } from "motion/react";
 import { Upload, AlertCircle, Volume2, Loader2, SkipBack, SkipForward, Cloud } from "lucide-react";
 import { AnimatedDownloadButton } from "./ui/AnimatedDownloadButton";
 import { CustomAudioPlayer } from "./ui/CustomAudioPlayer";
-import { pcmToWav, pcmToMp3 } from "../lib/utils";
-import { GoogleGenAI, Modality } from "@google/genai";
+import { pcmToWav, pcmToMp3, base64ToBytes } from "../lib/utils";
+import { api, ApiError } from "../lib/api";
+import { withRetry } from "../lib/retry";
+import type { Voice } from "../../shared/config";
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -16,25 +18,9 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 ).toString();
 
 const getFriendlyErrorMessage = (error: any): string => {
-  const errorString = error?.message || String(error);
-  
-  if (errorString.includes("API key not valid") || errorString.includes("API_KEY_INVALID")) {
-    return "Invalid API key. Please check your GEMINI_API_KEY in the Settings menu.";
-  }
-  if (errorString.includes("Quota exceeded") || errorString.includes("429") || errorString.includes("Too Many Requests")) {
-    return "Rate limit exceeded. Please wait a moment and try again.";
-  }
-  if (errorString.includes("mimeType") || errorString.includes("unsupported") || errorString.includes("invalid argument")) {
-    return "Unsupported file type or content. Please ensure you uploaded a valid PDF.";
-  }
-  if (errorString.includes("fetch failed") || errorString.includes("network")) {
-    return "Network error connecting to the AI service. Please check your connection and try again.";
-  }
-  if (errorString.includes("Failed to generate audio for chunk")) {
-    return "Failed to generate audio for a segment. The text might contain unsupported characters or the service is temporarily unavailable.";
-  }
-  
-  return errorString || "An unexpected error occurred during processing.";
+  // Errors from our backend already carry a user-facing message.
+  if (error instanceof ApiError) return error.message;
+  return error?.message || String(error) || "An unexpected error occurred during processing.";
 };
 
 export function WavyPDF() {
@@ -120,31 +106,7 @@ export function WavyPDF() {
 
     setLoadingPreviewVoice(voice);
     try {
-      const text = `Hello, my name is ${voice}.`;
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      
-      const audioResponse = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: voice },
-            },
-          },
-        },
-      });
-
-      const base64Audio = audioResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!base64Audio) throw new Error("Failed to generate audio");
-
-      const binary = atob(base64Audio);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      const wavBlob = await pcmToWav(bytes, 24000, 1);
+      const wavBlob = await pcmToWav(base64ToBytes(await api.previewVoice(voice as Voice)), 24000, 1);
       const url = URL.createObjectURL(wavBlob);
 
       setPreviewCache(prev => ({ ...prev, [voice]: url }));
@@ -283,44 +245,16 @@ export function WavyPDF() {
       reader.onload = async () => {
         try {
           const base64Data = (reader.result as string).split(',')[1];
-          const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-          
+
           setStatusMessage("Extracting text from PDF...");
           let extractedText = "";
-          
+          const onWait = (delay: number) => setStatusMessage(`The AI service is busy. Waiting ${Math.round(delay / 1000)}s before retrying...`);
+
           try {
-            const extractWithRetry = async (retries = 3): Promise<string> => {
-              try {
-                const textResponse = await ai.models.generateContent({
-                  model: "gemini-3.1-pro-preview",
-                  contents: [
-                    {
-                      role: "user",
-                      parts: [
-                        { text: "You are an expert document parser. Extract the main text from this document so it can be read aloud as an audiobook. Follow these rules strictly:\n1. Read in the correct logical order (top-to-bottom, left-to-right within columns).\n2. Exclude page numbers, headers, footers, and complex data tables.\n3. Expand special characters, acronyms, and symbols so they sound natural when spoken (e.g., '$50' becomes 'fifty dollars', '&' becomes 'and').\n4. Format the output as clean, continuous text with appropriate paragraph breaks.\n5. If there are clear section or chapter headings, preserve them and prefix them with '[CHAPTER: Title]' to help with chapter navigation." },
-                        { inlineData: { data: base64Data, mimeType: "application/pdf" } }
-                      ]
-                    }
-                  ]
-                });
-                return textResponse.text || "";
-              } catch (err: any) {
-                if (retries > 0) {
-                  const errorMsg = err?.message?.toLowerCase() || "";
-                  const isRateLimit = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("exhausted");
-                  const delay = isRateLimit ? (4 - retries) * 15000 : 2000;
-                  console.warn(`Extraction failed, retrying in ${delay}ms... (${retries} left)`, err);
-                  setStatusMessage(`Rate limit reached. Waiting ${delay / 1000}s before retrying...`);
-                  await new Promise(r => setTimeout(r, delay));
-                  setStatusMessage("Extracting text from PDF...");
-                  return extractWithRetry(retries - 1);
-                }
-                throw err;
-              }
-            };
-            
-            extractedText = await extractWithRetry();
+            extractedText = await withRetry(() => api.extractPdf(base64Data), { onWait });
           } catch (e) {
+            // Sign-in problems won't be fixed by the local fallback; tell the user instead.
+            if (e instanceof ApiError && e.status === 401) throw e;
             console.warn("Gemini extraction failed, falling back to pdfjs", e);
           }
 
@@ -362,39 +296,8 @@ export function WavyPDF() {
               setStatusMessage("Cleaning up extracted text...");
               // Use Gemini to clean up the raw pdfjs text, fixing columns and special chars
               try {
-                const cleanupWithRetry = async (retries = 3): Promise<string> => {
-                  try {
-                    const cleanupResponse = await ai.models.generateContent({
-                      model: "gemini-3.1-pro-preview",
-                      contents: `I have extracted raw text from a PDF, but the layout, columns, and special characters might be messed up. Please clean it up for audiobook narration.
-                      
-Rules:
-1. Fix any column interleaving issues or broken sentences.
-2. Exclude page numbers, headers, footers, and complex data tables.
-3. Expand special characters, acronyms, and symbols so they sound natural when spoken.
-4. Format the output as clean, continuous text with appropriate paragraph breaks.
-5. If there are clear section or chapter headings, preserve them and prefix them with '[CHAPTER: Title]'.
-
-Raw Text:
-${fullText.substring(0, 100000)}` // Reduced to 100k chars to prevent payload too large errors
-                    });
-                    return cleanupResponse.text || fullText;
-                  } catch (err: any) {
-                    if (retries > 0) {
-                      const errorMsg = err?.message?.toLowerCase() || "";
-                      const isRateLimit = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("exhausted");
-                      const delay = isRateLimit ? (4 - retries) * 15000 : 2000;
-                      console.warn(`Cleanup failed, retrying in ${delay}ms... (${retries} left)`, err);
-                      setStatusMessage(`Rate limit reached. Waiting ${delay / 1000}s before retrying...`);
-                      await new Promise(r => setTimeout(r, delay));
-                      setStatusMessage("Cleaning up extracted text...");
-                      return cleanupWithRetry(retries - 1);
-                    }
-                    throw err;
-                  }
-                };
-                
-                extractedText = await cleanupWithRetry();
+                // The server caps cleanup input; send the first 100k characters.
+                extractedText = (await withRetry(() => api.cleanupText(fullText.substring(0, 100000)), { onWait })) || fullText;
               } catch (e) {
                 console.warn("Gemini cleanup failed, using raw pdfjs text", e);
                 extractedText = fullText;
@@ -467,8 +370,6 @@ ${fullText.substring(0, 100000)}` // Reduced to 100k chars to prevent payload to
     setError(null);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      
       // Parse chapters
       const chapterRegex = /\[CHAPTER:\s*(.*?)\]/g;
       const chapters: { title: string, text: string }[] = [];
@@ -508,49 +409,16 @@ ${fullText.substring(0, 100000)}` // Reduced to 100k chars to prevent payload to
       
       let completedCount = 0;
 
-      const processChunk = async (chunk: string, retries = 5): Promise<Int16Array> => {
-        try {
-          const audioResponse = await ai.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text: chunk }] }],
-            config: {
-              responseModalities: [Modality.AUDIO],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: selectedVoice },
-                },
-              },
-            },
-          });
-          
-          const base64Audio = audioResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-          if (!base64Audio) throw new Error(`Failed to generate audio for chunk`);
-
-          const binary = atob(base64Audio);
-          const bytes = new Uint8Array(binary.length);
-          for (let j = 0; j < binary.length; j++) {
-            bytes[j] = binary.charCodeAt(j);
-            if (j % 100000 === 0) {
-              await new Promise(resolve => setTimeout(resolve, 0));
-            }
-          }
-          
-          return new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
-        } catch (error: any) {
-          if (retries > 0) {
-            const errorMsg = error?.message?.toLowerCase() || "";
-            const isRateLimit = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("exhausted");
-            // Wait 15s for rate limits, 2s for other errors. Increase delay on subsequent retries.
-            const delay = isRateLimit ? (6 - retries) * 15000 : 2000; 
-            
-            console.warn(`TTS generation failed, retrying in ${delay}ms... (${retries} attempts left)`, error);
-            setStatusMessage(`Rate limit reached. Waiting ${delay / 1000}s before retrying...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            setStatusMessage(`Generating audio for ${totalChunks} segments across ${chapters.length} chapters...`);
-            return processChunk(chunk, retries - 1);
-          }
-          throw error;
-        }
+      const processChunk = async (chunk: string): Promise<Int16Array> => {
+        const base64Audio = await withRetry(() => api.synthesize(chunk, selectedVoice as Voice), {
+          retries: 5,
+          onWait: (delay) => {
+            setStatusMessage(`The AI service is busy. Waiting ${Math.round(delay / 1000)}s before retrying...`);
+          },
+        });
+        setStatusMessage(`Generating audio for ${totalChunks} segments across ${chapters.length} chapters...`);
+        const bytes = base64ToBytes(base64Audio);
+        return new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
       };
 
       for (const chapter of chapterChunks) {

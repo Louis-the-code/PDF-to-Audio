@@ -7,6 +7,13 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 export async function pcmToMp3(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Promise<Blob> {
   const mp3encoder = new lamejs.Mp3Encoder(numChannels, sampleRate, 128); // 128kbps
   const mp3Data: Int8Array[] = [];
