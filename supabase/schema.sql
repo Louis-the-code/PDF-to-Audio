@@ -11,12 +11,24 @@ create table if not exists public.playlists (
   created_at timestamptz not null default now()
 );
 
--- For databases created before `title` existed.
+-- Bring tables created by earlier versions of the app up to date.
 alter table public.playlists add column if not exists title text;
+alter table public.playlists alter column user_id set default auth.uid();
+alter table public.playlists alter column user_id set not null;
+-- Cascade so deleting an account also deletes its playlists.
+alter table public.playlists drop constraint if exists playlists_user_id_fkey;
+alter table public.playlists
+  add constraint playlists_user_id_fkey foreign key (user_id) references auth.users (id) on delete cascade;
 
 create index if not exists playlists_user_created_idx on public.playlists (user_id, created_at desc);
 
 alter table public.playlists enable row level security;
+
+-- Policies from earlier versions of the app (replaced by the ones below).
+drop policy if exists "Enable select for users based on user_id" on public.playlists;
+drop policy if exists "Enable insert for users based on user_id" on public.playlists;
+drop policy if exists "Enable update for users based on user_id" on public.playlists;
+drop policy if exists "Enable delete for users based on user_id" on public.playlists;
 
 drop policy if exists "Users read own playlists" on public.playlists;
 create policy "Users read own playlists" on public.playlists
@@ -36,6 +48,13 @@ create policy "Users delete own playlists" on public.playlists
 insert into storage.buckets (id, name, public)
 values ('audio-playlists', 'audio-playlists', false)
 on conflict (id) do update set public = false;
+
+-- Policies from earlier versions. "Allow public read access to audio" let
+-- anyone, signed in or not, read every user's audio: it must not come back.
+drop policy if exists "Allow public read access to audio" on storage.objects;
+drop policy if exists "Allow users to upload their own audio" on storage.objects;
+drop policy if exists "Allow users to update their own audio" on storage.objects;
+drop policy if exists "Allow users to delete their own audio" on storage.objects;
 
 -- Files live under "<user id>/<playlist id>/chapter_<n>.<ext>".
 drop policy if exists "Users read own audio" on storage.objects;

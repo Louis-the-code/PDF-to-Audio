@@ -29,10 +29,15 @@ export function createSupabaseVerifier(url: string, anonKey: string): TokenVerif
     if (hit && hit.expires > Date.now()) return hit.user;
 
     const { data, error } = await client.auth.getUser(token);
-    if (error || !data.user) {
+    if (error) {
       cache.delete(token);
-      return null;
+      // 4xx means Supabase rejected the token. Anything else (network failure,
+      // outage) must not be reported to the user as an expired session.
+      const status = (error as { status?: number }).status ?? 0;
+      if (status >= 400 && status < 500) return null;
+      throw error;
     }
+    if (!data.user) return null;
     const user = { id: data.user.id, email: data.user.email };
     cache.set(token, { user, expires: Date.now() + CACHE_TTL_MS });
     if (cache.size > 1000) {
