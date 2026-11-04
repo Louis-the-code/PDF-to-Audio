@@ -5,8 +5,13 @@ import { motion, AnimatePresence } from 'motion/react';
 
 import ShaderBackground from './ui/ShaderBackground';
 
+type Mode = 'login' | 'signup' | 'reset';
+
+const MIN_PASSWORD_LENGTH = 8;
+
 export function Auth() {
-  const [isLogin, setIsLogin] = useState(true);
+  const [mode, setMode] = useState<Mode>('login');
+  const isLogin = mode === 'login';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,19 +27,31 @@ export function Auth() {
     try {
       if (!supabase) throw new Error('Supabase client not initialized');
 
-      if (isLogin) {
+      if (mode === 'login') {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-      } else {
-        const { error } = await supabase.auth.signUp({ email, password });
+      } else if (mode === 'signup') {
+        // Send confirmation links back to whichever deployment the user signed up on.
+        const { error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } });
         if (error) throw error;
         setMessage('Check your email for the confirmation link!');
+      } else {
+        // The link signs the user in for recovery; App then shows the set-new-password screen.
+        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+        if (error) throw error;
+        setMessage('If an account exists for that email, a password reset link is on its way.');
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
+  };
+
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    setError(null);
+    setMessage(null);
   };
 
   const containerVariants = {
@@ -72,7 +89,11 @@ export function Auth() {
           </div>
           <h1 className="text-3xl font-bold tracking-tight mb-3">WavyPDF</h1>
           <p className="text-white/60 text-sm">
-            {isLogin ? 'Welcome back to your audiobook library.' : 'Create an account to save your audiobooks to the cloud.'}
+            {mode === 'login'
+              ? 'Welcome back to your audiobook library.'
+              : mode === 'signup'
+                ? 'Create an account to save your audiobooks to the cloud.'
+                : "Enter your email and we'll send you a link to reset your password."}
           </p>
         </motion.div>
 
@@ -101,12 +122,14 @@ export function Auth() {
           </AnimatePresence>
 
           <motion.div variants={itemVariants} className="space-y-1.5">
-            <label className="text-xs font-medium text-white/70 ml-1">Email</label>
+            <label htmlFor="auth-email" className="text-xs font-medium text-white/70 ml-1">Email</label>
             <div className="relative group">
               <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 group-focus-within:text-white/80 transition-colors" />
               <input
+                id="auth-email"
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-black/40 border border-white/10 rounded-2xl py-3.5 pl-11 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 focus:bg-white/5 transition-all"
@@ -115,20 +138,32 @@ export function Auth() {
             </div>
           </motion.div>
 
+          {mode !== 'reset' && (
           <motion.div variants={itemVariants} className="space-y-1.5">
-            <label className="text-xs font-medium text-white/70 ml-1">Password</label>
+            <div className="flex items-center justify-between">
+              <label htmlFor="auth-password" className="text-xs font-medium text-white/70 ml-1">Password</label>
+              {isLogin && (
+                <button type="button" onClick={() => switchMode('reset')} className="text-xs text-white/50 hover:text-white transition-colors">
+                  Forgot password?
+                </button>
+              )}
+            </div>
             <div className="relative group">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 group-focus-within:text-white/80 transition-colors" />
               <input
+                id="auth-password"
                 type="password"
                 required
+                minLength={mode === 'signup' ? MIN_PASSWORD_LENGTH : undefined}
+                autoComplete={isLogin ? 'current-password' : 'new-password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-black/40 border border-white/10 rounded-2xl py-3.5 pl-11 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 focus:bg-white/5 transition-all"
-                placeholder="••••••••"
+                placeholder={mode === 'signup' ? `At least ${MIN_PASSWORD_LENGTH} characters` : "••••••••"}
               />
             </div>
           </motion.div>
+          )}
 
           <motion.button
             variants={itemVariants}
@@ -138,7 +173,7 @@ export function Auth() {
             disabled={loading}
             className="w-full bg-white text-black font-semibold rounded-2xl py-3.5 flex items-center justify-center gap-2 hover:bg-white/90 transition-all disabled:opacity-50 mt-8 shadow-[0_0_20px_rgba(255,255,255,0.1)]"
           >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (isLogin ? 'Sign In' : 'Create Account')}
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : mode === 'login' ? 'Sign In' : mode === 'signup' ? 'Create Account' : 'Send Reset Link'}
             {!loading && <ArrowRight className="w-4 h-4" />}
           </motion.button>
         </form>
@@ -146,10 +181,10 @@ export function Auth() {
         <motion.div variants={itemVariants} className="mt-8 text-center">
           <button
             type="button"
-            onClick={() => setIsLogin(!isLogin)}
+            onClick={() => switchMode(isLogin ? 'signup' : 'login')}
             className="text-sm text-white/50 hover:text-white transition-colors"
           >
-            {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+            {isLogin ? "Don't have an account? Sign up" : mode === 'signup' ? 'Already have an account? Sign in' : 'Back to sign in'}
           </button>
         </motion.div>
       </motion.div>

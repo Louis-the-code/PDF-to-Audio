@@ -15,6 +15,7 @@ import { motion } from 'motion/react';
 const WavyPDF = lazy(() => import('./components/WavyPDF').then(m => ({ default: m.WavyPDF })));
 const Library = lazy(() => import('./components/Library').then(m => ({ default: m.Library })));
 const Auth = lazy(() => import('./components/Auth').then(m => ({ default: m.Auth })));
+const UpdatePassword = lazy(() => import('./components/UpdatePassword').then(m => ({ default: m.UpdatePassword })));
 const ShaderBackground = lazy(() => import('./components/ui/ShaderBackground'));
 
 function Spinner() {
@@ -144,6 +145,10 @@ function AppRoutes({ session }: { session: Session | null }) {
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  /** True after the user arrives from a password-reset email link. */
+  // Read the link marker on first render too: the auth client can process the link
+  // before our listener below is attached, and the event would then be missed.
+  const [recovering, setRecovering] = useState(() => /type=recovery/.test(window.location.hash));
 
   useEffect(() => {
     if (!supabase) {
@@ -158,8 +163,9 @@ export default function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
     });
 
     return () => subscription.unsubscribe();
@@ -170,6 +176,14 @@ export default function App() {
       <div className="min-h-screen bg-black flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-white/30 animate-spin" />
       </div>
+    );
+  }
+
+  if (recovering) {
+    return (
+      <Suspense fallback={<Spinner />}>
+        <UpdatePassword onDone={() => setRecovering(false)} />
+      </Suspense>
     );
   }
 
