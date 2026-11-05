@@ -27,6 +27,8 @@ export function useConversion({ voice, format, maxChars }: Options) {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [playlist, setPlaylist] = useState<GeneratedChapter[]>([]);
   const [chapterIndex, setChapterIndex] = useState(0);
+  /** Generation progress, 0..1. */
+  const [progress, setProgress] = useState(0);
 
   /** Aborted whenever a newer run starts or the user cancels, so stale work stops and is ignored. */
   const runRef = useRef<AbortController | null>(null);
@@ -118,6 +120,7 @@ export function useConversion({ voice, format, maxChars }: Options) {
   const generateAudio = useCallback(async () => {
     const controller = startRun();
     setError(null);
+    setProgress(0);
     setStep("generating");
 
     try {
@@ -129,6 +132,7 @@ export function useConversion({ voice, format, maxChars }: Options) {
         cache: cacheRef.current,
         signal: controller.signal,
         onStatus: (message) => !controller.signal.aborted && setStatusMessage(message),
+        onProgress: (done, total) => !controller.signal.aborted && setProgress(total ? done / total : 0),
       });
       if (controller.signal.aborted) {
         revokeAll(chapters);
@@ -164,6 +168,7 @@ export function useConversion({ voice, format, maxChars }: Options) {
     error,
     setError,
     statusMessage,
+    progress,
     fileName,
     pdfUrl,
     extractedText,

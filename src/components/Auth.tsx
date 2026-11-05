@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { fetchEnabledProviders, readAuthErrorFromUrl } from '../lib/authProviders';
-import { Loader2, Mail, ArrowRight, Check } from 'lucide-react';
+import { Loader2, Mail, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PasswordInput } from './ui/PasswordInput';
+import { LogoMark } from './ui/Logo';
+import { Waveform } from './ui/Waveform';
+import { seededPeaks } from '../lib/peaks';
+import { fade } from '../lib/motion';
 
-import ShaderBackground from './ui/ShaderBackground';
+const HERO_PEAKS = seededPeaks('wavypdf', 120);
 
 type Mode = 'login' | 'signup' | 'reset';
 
@@ -128,176 +132,179 @@ export function Auth() {
     setConfirmPassword('');
   };
 
-  const containerVariants = {
-    hidden: { opacity: 0, scale: 0.95 },
-    visible: {
-      opacity: 1,
-      scale: 1,
-      transition: {
-        stiffness: 300,
-        damping: 30,
-        staggerChildren: 0.1
-      }
-    }
-  };
+  const fieldLabel = 'text-sm font-medium text-mist-muted';
+  const input =
+    'h-12 w-full rounded-xl border border-white/[0.08] bg-ink-800 pl-11 pr-4 text-[15px] text-mist placeholder:text-mist-faint outline-none transition-[border-color,box-shadow] duration-150 focus:border-signal/60 focus:shadow-[0_0_0_4px_rgb(255_138_92/0.12)]';
 
-  const itemVariants = {
-    hidden: { opacity: 0, y: 10 },
-    visible: { opacity: 1, y: 0, transition: { stiffness: 300, damping: 30 } }
-  };
+  const heading = mode === 'login' ? 'Welcome back' : mode === 'signup' ? 'Create your account' : 'Reset your password';
+  const subheading =
+    mode === 'login'
+      ? 'Sign in to your audiobook library.'
+      : mode === 'signup'
+        ? 'Save your audiobooks and listen anywhere.'
+        : "Enter your email and we'll send you a reset link.";
 
   return (
-    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 font-sans selection:bg-white/30 relative overflow-hidden">
-      {/* Animated Background */}
-      <ShaderBackground />
-
-      <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-        className="w-full max-w-md bg-white/5 border border-white/10 p-8 sm:p-10 rounded-[2rem] backdrop-blur-2xl relative z-10 shadow-2xl shadow-black/50"
-      >
-        <motion.div variants={itemVariants} className="text-center mb-10">
-          <div className="w-16 h-16 mx-auto bg-gradient-to-br from-blue-500 to-purple-500 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-500/20">
-            <div className="w-6 h-6 bg-white rounded-full" />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight mb-3">WavyPDF</h1>
-          <p className="text-white/60 text-sm">
-            {mode === 'login'
-              ? 'Welcome back to your audiobook library.'
-              : mode === 'signup'
-                ? 'Create an account to save your audiobooks to the cloud.'
-                : "Enter your email and we'll send you a link to reset your password."}
+    <div className="relative z-10 grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
+      {/* Brand side (desktop): the one expressive moment on this screen. */}
+      <section className="hidden flex-col justify-between p-12 lg:flex">
+        <span className="flex items-center gap-2.5">
+          <LogoMark />
+          <span className="font-display text-lg font-semibold tracking-tight">WavyPDF</span>
+        </span>
+        <div className="max-w-xl">
+          <h1 className="font-display text-6xl font-semibold leading-[1.02] tracking-[-0.035em]">Turn any PDF into an audiobook.</h1>
+          <p className="mt-5 max-w-md text-lg leading-relaxed text-mist-muted">
+            Pick a voice, drop in a document, and listen while you walk, cook or commute.
           </p>
-        </motion.div>
+          <div className="mt-12 max-w-lg">
+            <Waveform peaks={HERO_PEAKS} progress={0.38} breathing height={88} label="Decorative sound wave" />
+          </div>
+        </div>
+        <p className="text-sm text-mist-faint">Your documents stay private to your account.</p>
+      </section>
 
-        {googleEnabled && mode !== 'reset' && (
-          <motion.div variants={itemVariants} className="mb-6">
-            <button
-              type="button"
-              onClick={signInWithGoogle}
-              className="w-full bg-white/10 hover:bg-white/15 border border-white/15 text-white font-medium rounded-2xl py-3.5 flex items-center justify-center gap-3 transition-colors"
-            >
-              <GoogleLogo />
-              Continue with Google
-            </button>
-            <div className="flex items-center gap-3 mt-6 text-xs text-white/40">
-              <div className="h-px flex-1 bg-white/10" />
-              or use your email
-              <div className="h-px flex-1 bg-white/10" />
-            </div>
-          </motion.div>
-        )}
+      <section className="flex items-center justify-center px-4 py-10 sm:px-8">
+        <motion.div
+          initial={{ opacity: 0, transform: 'translateY(12px) scale(0.98)' }}
+          animate={{ opacity: 1, transform: 'translateY(0px) scale(1)' }}
+          transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+          className="w-full max-w-[420px] rounded-3xl border border-white/[0.08] bg-ink-900/90 p-7 shadow-lift sm:p-9"
+        >
+          <div className="mb-8">
+            <span className="mb-6 flex items-center gap-2.5 lg:hidden">
+              <LogoMark />
+              <span className="font-display text-lg font-semibold tracking-tight">WavyPDF</span>
+            </span>
+            <h2 className="text-3xl font-semibold">{heading}</h2>
+            <p className="mt-2 text-mist-muted">{subheading}</p>
+          </div>
 
-        <form onSubmit={handleAuth} className="space-y-5">
-          <AnimatePresence mode="wait">
-            {notice && (
-              <motion.div
-                key={notice.text}
-                role={notice.kind === 'error' ? 'alert' : 'status'}
-                initial={{ opacity: 0, height: 0, y: -10 }}
-                animate={{ opacity: 1, height: 'auto', y: 0 }}
-                exit={{ opacity: 0, height: 0, y: -10 }}
-                className={`p-4 rounded-2xl text-sm overflow-hidden border ${
-                  notice.kind === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-green-500/10 border-green-500/20 text-green-400'
-                }`}
+          {googleEnabled && mode !== 'reset' && (
+            <div className="mb-6">
+              <button
+                type="button"
+                onClick={signInWithGoogle}
+                className="press flex h-12 w-full items-center justify-center gap-3 rounded-xl bg-mist font-medium text-ink-950 hover:bg-white"
               >
-                {notice.text}
-                {notice.actions && (
-                  <div className="flex gap-4 mt-2">
-                    {notice.actions.map((action) => (
-                      <button key={action.mode} type="button" onClick={() => switchMode(action.mode)} className="font-semibold underline underline-offset-2 hover:text-white">
-                        {action.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <motion.div variants={itemVariants} className="space-y-1.5">
-            <label htmlFor="auth-email" className="text-xs font-medium text-white/70 ml-1">Email</label>
-            <div className="relative group">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 group-focus-within:text-white/80 transition-colors" />
-              <input
-                id="auth-email"
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-2xl py-3.5 pl-11 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 focus:bg-white/5 transition-all"
-                placeholder="you@example.com"
-              />
+                <GoogleLogo />
+                Continue with Google
+              </button>
+              <div className="mt-6 flex items-center gap-3 text-xs text-mist-faint">
+                <div className="h-px flex-1 bg-white/[0.08]" />
+                or with email
+                <div className="h-px flex-1 bg-white/[0.08]" />
+              </div>
             </div>
-          </motion.div>
+          )}
 
-          {mode !== 'reset' && (
-            <motion.div variants={itemVariants} className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label htmlFor="auth-password" className="text-xs font-medium text-white/70 ml-1">Password</label>
-                {isLogin && (
-                  <button type="button" onClick={() => switchMode('reset')} className="text-xs text-white/50 hover:text-white transition-colors">
-                    Forgot password?
-                  </button>
+          <form onSubmit={handleAuth} className="space-y-5">
+            <AnimatePresence mode="wait" initial={false}>
+              {notice && (
+                <motion.div
+                  key={notice.text}
+                  role={notice.kind === 'error' ? 'alert' : 'status'}
+                  initial={{ opacity: 0, transform: 'translateY(-4px)' }}
+                  animate={{ opacity: 1, transform: 'translateY(0px)' }}
+                  exit={{ opacity: 0 }}
+                  transition={fade}
+                  className={`rounded-xl border px-4 py-3 text-sm leading-relaxed ${
+                    notice.kind === 'error' ? 'border-danger/25 bg-danger/10 text-danger' : 'border-ok/25 bg-ok/10 text-ok'
+                  }`}
+                >
+                  {notice.text}
+                  {notice.actions && (
+                    <div className="mt-2 flex gap-4">
+                      {notice.actions.map((action) => (
+                        <button key={action.mode} type="button" onClick={() => switchMode(action.mode)} className="font-semibold text-mist underline decoration-white/30 underline-offset-4 hover:decoration-white">
+                          {action.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="space-y-2">
+              <label htmlFor="auth-email" className={fieldLabel}>Email</label>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-mist-faint" />
+                <input
+                  id="auth-email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className={input}
+                  placeholder="you@example.com"
+                />
+              </div>
+            </div>
+
+            {mode !== 'reset' && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="auth-password" className={fieldLabel}>Password</label>
+                  {isLogin && (
+                    <button type="button" onClick={() => switchMode('reset')} className="text-sm text-mist-muted hover:text-mist">
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
+                <PasswordInput
+                  id="auth-password"
+                  required
+                  minLength={mode === 'signup' ? MIN_PASSWORD_LENGTH : undefined}
+                  autoComplete={isLogin ? 'current-password' : 'new-password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={mode === 'signup' ? `At least ${MIN_PASSWORD_LENGTH} characters` : 'Your password'}
+                />
+              </div>
+            )}
+
+            {mode === 'signup' && (
+              <div className="space-y-2">
+                <label htmlFor="auth-password-confirm" className={fieldLabel}>Confirm password</label>
+                <PasswordInput
+                  id="auth-password-confirm"
+                  required
+                  minLength={MIN_PASSWORD_LENGTH}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Type it again"
+                />
+                {confirmPassword.length > 0 && (
+                  <p className={`flex items-center gap-1.5 text-sm ${passwordsMatch ? 'text-ok' : 'text-mist-faint'}`}>
+                    {passwordsMatch ? <><Check className="h-4 w-4" /> Passwords match</> : 'Passwords do not match yet'}
+                  </p>
                 )}
               </div>
-              <PasswordInput
-                id="auth-password"
-                required
-                minLength={mode === 'signup' ? MIN_PASSWORD_LENGTH : undefined}
-                autoComplete={isLogin ? 'current-password' : 'new-password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={mode === 'signup' ? `At least ${MIN_PASSWORD_LENGTH} characters` : '••••••••'}
-              />
-            </motion.div>
-          )}
+            )}
 
-          {mode === 'signup' && (
-            <motion.div variants={itemVariants} initial="hidden" animate="visible" className="space-y-1.5">
-              <label htmlFor="auth-password-confirm" className="text-xs font-medium text-white/70 ml-1">Confirm password</label>
-              <PasswordInput
-                id="auth-password-confirm"
-                required
-                minLength={MIN_PASSWORD_LENGTH}
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Type it again"
-              />
-              {confirmPassword.length > 0 && (
-                <p className={`text-xs ml-1 flex items-center gap-1 ${passwordsMatch ? 'text-green-400' : 'text-white/50'}`}>
-                  {passwordsMatch ? <><Check className="w-3.5 h-3.5" /> Passwords match</> : 'Passwords do not match yet'}
-                </p>
-              )}
-            </motion.div>
-          )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="press mt-2 flex h-12 w-full items-center justify-center rounded-xl bg-signal font-semibold text-ink-950 shadow-signal hover:bg-signal-strong disabled:opacity-60"
+            >
+              {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : mode === 'login' ? 'Sign In' : mode === 'signup' ? 'Create Account' : 'Send Reset Link'}
+            </button>
+          </form>
 
-          <motion.button
-            variants={itemVariants}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            type="submit"
-            disabled={loading}
-            className="w-full bg-white text-black font-semibold rounded-2xl py-3.5 flex items-center justify-center gap-2 hover:bg-white/90 transition-all disabled:opacity-50 mt-8 shadow-[0_0_20px_rgba(255,255,255,0.1)]"
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : mode === 'login' ? 'Sign In' : mode === 'signup' ? 'Create Account' : 'Send Reset Link'}
-            {!loading && <ArrowRight className="w-4 h-4" />}
-          </motion.button>
-        </form>
-
-        <motion.div variants={itemVariants} className="mt-8 text-center">
-          <button
-            type="button"
-            onClick={() => switchMode(isLogin ? 'signup' : 'login')}
-            className="text-sm text-white/50 hover:text-white transition-colors"
-          >
-            {isLogin ? "Don't have an account? Sign up" : mode === 'signup' ? 'Already have an account? Sign in' : 'Back to sign in'}
-          </button>
+          <div className="mt-7 text-center">
+            <button
+              type="button"
+              onClick={() => switchMode(isLogin ? 'signup' : 'login')}
+              className="text-sm text-mist-muted hover:text-mist"
+            >
+              {isLogin ? "Don't have an account? Sign up" : mode === 'signup' ? 'Already have an account? Sign in' : 'Back to sign in'}
+            </button>
+          </div>
         </motion.div>
-      </motion.div>
+      </section>
     </div>
   );
 }
