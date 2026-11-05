@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Loader2, Trash2, Play, Calendar, ListMusic } from 'lucide-react';
+import { Trash2, Play, AudioLines, Headphones } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CustomAudioPlayer } from './ui/CustomAudioPlayer';
+import { AudioPlayer } from './ui/AudioPlayer';
+import { seededPeaks } from '../lib/peaks';
+import { fade, spring } from '../lib/motion';
 import { AUDIO_BUCKET, SIGNED_URL_TTL_SECONDS, chapterPath } from '../lib/storage';
 import { errorMessage } from '../lib/errors';
 
@@ -24,6 +27,20 @@ interface Playlist {
 }
 
 const playlistTitle = (p: Playlist) => p.title || p.chapters[0]?.title || 'Audiobook';
+
+/** A small cover made from the audiobook's own (decorative) wave. */
+function Cover({ seed, size = 52 }: { seed: string; size?: number }) {
+  const bars = useMemo(() => seededPeaks(seed, 9), [seed]);
+  return (
+    <span className="grid shrink-0 place-items-center rounded-2xl bg-ink-800 ring-1 ring-white/[0.06]" style={{ width: size, height: size }} aria-hidden>
+      <span className="flex h-1/2 items-center gap-[3px]">
+        {bars.map((b, i) => (
+          <span key={i} className="w-[3px] rounded-full bg-gradient-to-t from-signal to-amber" style={{ height: `${Math.round(b * 100)}%` }} />
+        ))}
+      </span>
+    </span>
+  );
+}
 
 export function Library() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -101,223 +118,170 @@ export function Library() {
     setCurrentChapterIndex(0);
   };
 
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: { staggerChildren: 0.1 }
-    }
-  };
+  const activePeaks = useMemo(
+    () => (activePlaylist ? seededPeaks(`${activePlaylist.id}:${currentChapterIndex}`, 140) : []),
+    [activePlaylist, currentChapterIndex],
+  );
 
-  const itemVariants = {
-    hidden: { opacity: 0, y: 20 },
-    show: { opacity: 1, y: 0, transition: { stiffness: 300, damping: 30 } }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex-1 flex items-center justify-center min-h-[50vh]">
-        <Loader2 className="w-8 h-8 text-white/30 animate-spin" />
-      </div>
-    );
-  }
+  const count = playlists.length;
 
   return (
-    <div className="max-w-6xl mx-auto p-6 lg:p-10">
-      <motion.div 
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-10"
-      >
-        <h1 className="text-4xl font-bold tracking-tight mb-2">My Library</h1>
-        <p className="text-white/50 text-lg">Manage and listen to your saved audiobooks.</p>
-      </motion.div>
+    <div className="mx-auto max-w-6xl px-4 pb-24 pt-10 sm:px-6 sm:pt-14">
+      <div className="mb-8 sm:mb-10">
+        <h1 className="text-3xl font-semibold sm:text-4xl">My Library</h1>
+        <p className="mt-3 text-lg text-mist-muted">
+          {loading ? 'Loading your audiobooks…' : count === 0 ? 'Audiobooks you save will appear here.' : `${count} audiobook${count === 1 ? '' : 's'}, ready when you are.`}
+        </p>
+      </div>
 
       <AnimatePresence>
         {error && (
-          <motion.div 
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 mb-8"
+          <motion.div
+            role="alert"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={fade}
+            className="mb-6 rounded-2xl border border-danger/25 bg-danger/10 px-4 py-3.5 text-sm text-danger"
           >
             {error}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {playlists.length === 0 && !error ? (
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-center py-32 bg-white/5 border border-white/10 rounded-[2rem] shadow-inner"
-        >
-          <div className="w-20 h-20 mx-auto bg-white/5 rounded-full flex items-center justify-center mb-6">
-            <ListMusic className="w-10 h-10 text-white/20" />
-          </div>
-          <h3 className="text-2xl font-semibold text-white/90 mb-3">Your library is empty</h3>
-          <p className="text-white/50 max-w-md mx-auto">Generate and save some audiobooks from the Create tab to see them here.</p>
-        </motion.div>
+      {loading ? (
+        <div className="space-y-3" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-[84px] animate-pulse rounded-2xl bg-ink-900/80" style={{ animationDelay: `${i * 120}ms` }} />
+          ))}
+        </div>
+      ) : count === 0 && !error ? (
+        <div className="flex flex-col items-center rounded-3xl border border-dashed border-white/[0.12] bg-ink-900/60 px-6 py-20 text-center">
+          <span className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-ink-800 text-signal">
+            <Headphones className="h-7 w-7" />
+          </span>
+          <h2 className="text-2xl font-semibold">Your library is empty</h2>
+          <p className="mt-2 max-w-sm text-mist-muted">Turn a PDF into audio, then choose Save to Library to keep it here.</p>
+          <Link to="/" className="press mt-6 inline-flex h-12 items-center rounded-xl bg-signal px-6 font-semibold text-ink-950 shadow-signal hover:bg-signal-strong">
+            Create an audiobook
+          </Link>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          {/* Playlist Grid */}
-          <motion.div 
-            variants={containerVariants}
-            initial="hidden"
-            animate="show"
-            className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5"
-          >
-            <AnimatePresence>
-              {playlists.map((playlist) => (
-                <motion.div
-                  layout
-                  variants={itemVariants}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  key={playlist.id}
-                  className={`group relative p-6 rounded-[2rem] border transition-all duration-300 overflow-hidden ${
-                    activePlaylist?.id === playlist.id 
-                      ? 'border-white/30 shadow-[0_0_40px_rgba(255,255,255,0.1)]' 
-                      : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 hover:-translate-y-1'
-                  }`}
-                >
-                  {activePlaylist?.id === playlist.id && (
-                    <motion.div 
-                      layoutId="active-playlist-bg"
-                      className="absolute inset-0 bg-white/10 z-0"
-                      transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                    />
-                  )}
-                  <div className="relative z-10 flex justify-between items-start mb-6">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center border border-white/10 group-hover:scale-110 transition-transform duration-300">
-                        <ListMusic className="w-6 h-6 text-white/70" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-white text-lg truncate max-w-[160px]" title={playlistTitle(playlist)}>
-                          {playlistTitle(playlist)}
-                        </h3>
-                        <div className="flex items-center gap-2 text-xs text-white/40 mt-1">
-                          <Calendar className="w-3.5 h-3.5" />
-                          {new Date(playlist.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </div>
-                      </div>
+        <div className="grid gap-5 lg:grid-cols-[1fr_400px] lg:items-start lg:gap-6">
+          <ul className="space-y-2.5">
+            <AnimatePresence initial={false}>
+              {playlists.map((playlist, i) => {
+                const active = activePlaylist?.id === playlist.id;
+                const title = playlistTitle(playlist);
+                const chapters = playlist.chapters.length;
+                return (
+                  <motion.li
+                    key={playlist.id}
+                    layout
+                    initial={{ opacity: 0, transform: 'translateY(8px)' }}
+                    animate={{ opacity: 1, transform: 'translateY(0px)' }}
+                    exit={{ opacity: 0, transform: 'scale(0.97)' }}
+                    transition={{ ...spring.smooth, delay: Math.min(i, 8) * 0.04 }}
+                    className={`group relative flex items-center gap-4 rounded-2xl border p-3.5 pr-3 transition-colors duration-200 ${
+                      active ? 'border-signal/40 bg-signal/[0.06]' : 'border-white/[0.06] bg-ink-900/80 hover:border-white/[0.12]'
+                    }`}
+                  >
+                    <Cover seed={playlist.id} />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate font-display text-[17px] font-semibold" title={title}>{title}</h3>
+                      <p className="mt-0.5 text-sm text-mist-muted">
+                        {chapters} chapter{chapters === 1 ? '' : 's'}, {playlist.format.toUpperCase()}
+                        <span className="text-mist-faint"> &nbsp;{new Date(playlist.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      </p>
                     </div>
                     <button
+                      type="button"
                       onClick={() => deletePlaylist(playlist)}
-                      className="p-2 text-white/20 hover:text-red-400 hover:bg-red-500/10 rounded-full transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                      className="press grid h-9 w-9 place-items-center rounded-full text-mist-faint hover:bg-danger/10 hover:text-danger focus-visible:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
                       title="Delete"
                       aria-label="Delete audiobook"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="h-4 w-4" />
                     </button>
-                  </div>
-
-                  <div className="relative z-10 flex items-center justify-between mt-8">
-                    <span className="text-xs font-medium text-white/50 bg-black/40 px-3 py-1.5 rounded-lg border border-white/5">
-                      {playlist.chapters.length} Chapter{playlist.chapters.length !== 1 ? 's' : ''} • {playlist.format.toUpperCase()}
-                    </span>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
+                    <button
+                      type="button"
                       onClick={() => playPlaylist(playlist)}
-                      className="flex items-center gap-2 px-5 py-2 bg-white text-black text-sm font-bold rounded-full hover:bg-white/90 transition-colors shadow-lg shadow-white/10"
+                      className={`press grid h-11 w-11 place-items-center rounded-full ${active ? 'bg-ink-700 text-signal' : 'bg-signal text-ink-950 shadow-signal hover:bg-signal-strong'}`}
+                      aria-label={active ? `Now playing ${title}` : `Play ${title}`}
                     >
-                      <Play className="w-4 h-4 fill-current" />
-                      Play
-                    </motion.button>
-                  </div>
-                </motion.div>
-              ))}
+                      {active ? <AudioLines className="h-5 w-5" /> : <Play className="ml-0.5 h-4 w-4 fill-current" />}
+                    </button>
+                  </motion.li>
+                );
+              })}
             </AnimatePresence>
-          </motion.div>
+          </ul>
 
-          {/* Active Player */}
-          <motion.div 
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.2 }}
-            className="lg:col-span-1 sticky top-24"
-          >
-            <AnimatePresence mode="wait">
+          <div className="lg:sticky lg:top-24">
+            <AnimatePresence mode="wait" initial={false}>
               {activePlaylist ? (
-                <motion.div 
-                  key="active-player"
-                  initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: -20 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                  className="p-8 rounded-[2rem] bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl flex flex-col gap-6 relative overflow-hidden"
+                <motion.div
+                  key={activePlaylist.id}
+                  initial={{ opacity: 0, transform: 'translateY(8px)' }}
+                  animate={{ opacity: 1, transform: 'translateY(0px)' }}
+                  exit={{ opacity: 0 }}
+                  transition={spring.smooth}
+                  className="rounded-3xl border border-white/[0.08] bg-ink-900/90 p-5 shadow-lift sm:p-6"
                 >
-                  <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 pointer-events-none" />
-                  
-                  <div className="flex items-center justify-between relative z-10">
-                    <h3 className="text-white font-semibold text-xl">Now Playing</h3>
-                    <motion.span 
-                      key={currentChapterIndex}
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="text-xs font-medium text-white/50 bg-black/40 px-3 py-1.5 rounded-lg border border-white/5"
-                    >
-                      {currentChapterIndex + 1} of {activePlaylist.chapters.length}
-                    </motion.span>
-                  </div>
-                  
-                  <div className="relative group z-10">
-                    <select
-                      value={currentChapterIndex}
-                      onChange={(e) => setCurrentChapterIndex(Number(e.target.value))}
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 pl-5 pr-12 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 appearance-none cursor-pointer group-hover:bg-black/60 transition-colors"
-                    >
-                      {activePlaylist.chapters.map((chapter, idx) => (
-                        <option key={idx} value={idx} className="bg-zinc-900 text-white">
-                          {idx + 1}. {chapter.title}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/40 group-hover:text-white/70 transition-colors">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                  <div className="mb-5 flex items-center gap-4">
+                    <Cover seed={activePlaylist.id} size={56} />
+                    <div className="min-w-0">
+                      <p className="text-sm text-mist-muted">Now playing</p>
+                      <h2 className="truncate text-xl font-semibold" title={playlistTitle(activePlaylist)}>{playlistTitle(activePlaylist)}</h2>
                     </div>
                   </div>
 
-                  <div className="pt-2 relative z-10">
-                    <AnimatePresence mode="wait">
-                      <motion.div
-                        key={currentChapterIndex}
-                        initial={{ opacity: 0, x: 10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -10 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <CustomAudioPlayer 
-                          src={activeUrls[currentChapterIndex] || undefined} 
-                          autoPlay
-                          onEnded={() => {
-                            if (currentChapterIndex < activePlaylist.chapters.length - 1) {
-                              setCurrentChapterIndex(prev => prev + 1);
-                            }
-                          }}
-                        />
-                      </motion.div>
-                    </AnimatePresence>
-                  </div>
+                  <AudioPlayer
+                    src={activeUrls[currentChapterIndex] || undefined}
+                    peaks={activePeaks}
+                    autoPlay
+                    onEnded={() => {
+                      if (currentChapterIndex < activePlaylist.chapters.length - 1) setCurrentChapterIndex((i) => i + 1);
+                    }}
+                  />
+
+                  {activePlaylist.chapters.length > 1 && (
+                    <ol aria-label="Chapters" className="mt-5 max-h-64 space-y-0.5 overflow-y-auto border-t border-white/[0.06] pt-3">
+                      {activePlaylist.chapters.map((chapter, idx) => {
+                        const current = idx === currentChapterIndex;
+                        return (
+                          <li key={idx}>
+                            <button
+                              type="button"
+                              onClick={() => setCurrentChapterIndex(idx)}
+                              aria-current={current ? 'true' : undefined}
+                              className={`press relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm ${current ? 'text-mist' : 'text-mist-muted hover:text-mist'}`}
+                            >
+                              {current && <motion.span layoutId="library-chapter-pill" transition={spring.tactile} className="absolute inset-0 rounded-xl bg-white/[0.06]" />}
+                              <span className={`relative w-5 shrink-0 text-right font-mono text-xs tabular-nums ${current ? 'text-signal' : 'text-mist-faint'}`}>{idx + 1}</span>
+                              <span className="relative truncate">{chapter.title}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  )}
                 </motion.div>
               ) : (
-                <motion.div 
-                  key="empty-player"
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="p-10 rounded-[2rem] bg-white/5 border border-white/10 border-dashed flex flex-col items-center justify-center text-center h-[400px]"
+                <motion.div
+                  key="empty"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={fade}
+                  className="hidden rounded-3xl border border-dashed border-white/[0.1] p-8 text-center lg:block"
                 >
-                  <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
-                    <Play className="w-6 h-6 text-white/20 ml-1" />
-                  </div>
-                  <h3 className="text-lg font-medium text-white/80 mb-2">Ready to Play</h3>
-                  <p className="text-white/40 text-sm max-w-[200px]">Select an audiobook from your library to start listening</p>
+                  <p className="font-display text-lg font-semibold">Nothing playing</p>
+                  <p className="mt-1 text-sm text-mist-muted">Press play on an audiobook to listen here.</p>
                 </motion.div>
               )}
             </AnimatePresence>
-          </motion.div>
+          </div>
         </div>
       )}
     </div>

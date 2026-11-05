@@ -3,12 +3,15 @@ import { api } from "./api";
 import { base64ToPcm, encodePcm, mergePcm, type AudioFormat } from "./audio";
 import { chunkText } from "./chunkText";
 import { parseChapters } from "./chapters";
+import { computePeaks } from "./peaks";
 import { withRetry } from "./retry";
 
 export interface GeneratedChapter {
   title: string;
   url: string;
   blob: Blob;
+  /** Loudness envelope for drawing this chapter's waveform. */
+  peaks: number[];
 }
 
 /** Decoded audio per (voice, text) segment, kept across attempts so a retry resumes where it failed. */
@@ -22,6 +25,8 @@ export interface GenerateOptions {
   cache: SegmentCache;
   signal: AbortSignal;
   onStatus: (message: string) => void;
+  /** Segments finished so far, out of the total. */
+  onProgress?: (done: number, total: number) => void;
 }
 
 export const isAbortError = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
@@ -31,11 +36,12 @@ const throwIfAborted = (signal: AbortSignal) => {
 };
 
 /** Generates one audio file per chapter. Object URLs are revoked if generation fails or is cancelled. */
-export async function generateChapters({ text, voice, format, maxChars, cache, signal, onStatus }: GenerateOptions): Promise<GeneratedChapter[]> {
+export async function generateChapters({ text, voice, format, maxChars, cache, signal, onStatus, onProgress }: GenerateOptions): Promise<GeneratedChapter[]> {
   const chapters = parseChapters(text).map((chapter) => ({ ...chapter, segments: chunkText(chapter.text, maxChars) }));
   const totalSegments = chapters.reduce((sum, c) => sum + c.segments.length, 0);
   const summary = `Generating audio for ${totalSegments} segments across ${chapters.length} chapters...`;
   onStatus(summary);
+  onProgress?.(0, totalSegments);
 
   const results: GeneratedChapter[] = [];
   let done = 0;
@@ -60,12 +66,14 @@ export async function generateChapters({ text, voice, format, maxChars, cache, s
 
         pcmSegments.push(pcm);
         onStatus(`Generated audio segment ${++done} of ${totalSegments}...`);
+        onProgress?.(done, totalSegments);
       }
 
       throwIfAborted(signal);
       onStatus(`Finalizing chapter: ${chapter.title}...`);
-      const blob = await encodePcm(mergePcm(pcmSegments), format);
-      results.push({ title: chapter.title, url: URL.createObjectURL(blob), blob });
+      const merged = mergePcm(pcmSegments);
+      const blob = await encodePcm(merged, format);
+      results.push({ title: chapter.title, url: URL.createObjectURL(blob), blob, peaks: computePeaks(merged) });
     }
     throwIfAborted(signal);
     return results;

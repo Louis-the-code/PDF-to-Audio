@@ -23,6 +23,8 @@ describe("generateChapters", () => {
     const out = await generateChapters({ ...base, text: TEXT, cache: new Map(), signal: new AbortController().signal });
     expect(out.map((c) => c.title)).toEqual(["One", "Two"]);
     expect(synthesize).toHaveBeenCalledTimes(3);
+    expect(out[0].peaks.length).toBeGreaterThan(0);
+    expect(Math.max(...out[0].peaks)).toBeCloseTo(1);
   });
 
   it("resumes from cached segments after a failure instead of paying twice", async () => {
@@ -35,6 +37,13 @@ describe("generateChapters", () => {
     const out = await generateChapters({ ...base, text: TEXT, cache, signal: new AbortController().signal });
     expect(out).toHaveLength(2);
     expect(synthesize).toHaveBeenCalledTimes(2); // 3 segments, 1 already cached
+  });
+
+  it("reports numeric progress per segment", async () => {
+    synthesize.mockResolvedValue(pcmBase64);
+    const progress: [number, number][] = [];
+    await generateChapters({ ...base, text: TEXT, cache: new Map(), signal: new AbortController().signal, onProgress: (d, t) => progress.push([d, t]) });
+    expect(progress).toEqual([[0, 3], [1, 3], [2, 3], [3, 3]]);
   });
 
   it("does not reuse cached audio for a different voice", async () => {
