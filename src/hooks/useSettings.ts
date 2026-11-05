@@ -30,14 +30,18 @@ export function useSettings() {
   const [format, setFormat] = useState<AudioFormat>(() => (read("wavy_format") === "wav" ? "wav" : "mp3"));
   const [maxChars, setMaxChars] = useState<number>(() => {
     const saved = Number.parseInt(read("wavy_maxChars") ?? "", 10);
-    return Number.isFinite(saved) ? Math.min(MAX_SEGMENT_CHARS, Math.max(MIN_SEGMENT_CHARS, saved)) : 4000;
+    // 3,000 characters is about three minutes of speech: short enough that several
+    // run in parallel and the first chapter is ready quickly.
+    return Number.isFinite(saved) ? Math.min(MAX_SEGMENT_CHARS, Math.max(MIN_SEGMENT_CHARS, saved)) : 3000;
   });
+  const [reviewFirst, setReviewFirst] = useState<boolean>(() => read("wavy_reviewFirst") === "true");
 
   useEffect(() => {
     write("wavy_voice", voice);
     write("wavy_format", format);
     write("wavy_maxChars", String(maxChars));
-  }, [voice, format, maxChars]);
+    write("wavy_reviewFirst", String(reviewFirst));
+  }, [voice, format, maxChars, reviewFirst]);
 
-  return { voice, setVoice, format, setFormat, maxChars, setMaxChars };
+  return { voice, setVoice, format, setFormat, maxChars, setMaxChars, reviewFirst, setReviewFirst };
 }

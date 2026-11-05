@@ -9,11 +9,12 @@ interface Props {
   onAccept: (heading: string) => void;
   onDismiss: (heading: string) => void;
   onDismissAll: () => void;
+  onAcceptAll: () => void;
   onAutoDetect: () => void;
   onGenerate: () => void;
 }
 
-export function ChapterEditor({ step, text, onTextChange, suggestions, onAccept, onDismiss, onDismissAll, onAutoDetect, onGenerate }: Props) {
+export function ChapterEditor({ step, text, onTextChange, suggestions, onAccept, onAcceptAll, onDismiss, onDismissAll, onAutoDetect, onGenerate }: Props) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between px-2">
@@ -45,9 +46,14 @@ export function ChapterEditor({ step, text, onTextChange, suggestions, onAccept,
               <div className="p-3 bg-blue-500/10 border-b border-blue-500/20 flex flex-col gap-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-blue-400 font-medium">Suggested Chapter Breaks:</span>
-                  <button onClick={onDismissAll} className="text-xs text-blue-400/70 hover:text-blue-400">
-                    Dismiss All
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button onClick={onAcceptAll} className="rounded-full bg-blue-400/20 px-3 py-1 text-xs font-semibold text-blue-300 hover:bg-blue-400/30">
+                      Accept All ({suggestions.length})
+                    </button>
+                    <button onClick={onDismissAll} className="text-xs text-blue-400/70 hover:text-blue-400">
+                      Dismiss All
+                    </button>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto">
                   {suggestions.map((heading) => (

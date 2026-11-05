@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { fetchEnabledProviders, readAuthErrorFromUrl } from '../lib/authProviders';
 import { Loader2, Mail, ArrowRight, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { LogoMark } from './ui/Logo';
 import { bouncy } from "../lib/motion";
 import { PasswordInput } from './ui/PasswordInput';
 
@@ -159,9 +160,7 @@ export function Auth() {
         className="w-full max-w-md bg-white/5 border border-white/10 p-8 sm:p-10 rounded-[2rem] backdrop-blur-lg relative z-10 shadow-2xl shadow-black/50"
       >
         <motion.div variants={itemVariants} className="text-center mb-10">
-          <div className="w-16 h-16 mx-auto bg-gradient-to-br from-blue-500 to-purple-500 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-500/20">
-            <div className="w-6 h-6 bg-white rounded-full" />
-          </div>
+          <LogoMark className="w-16 h-16 mx-auto mb-6 drop-shadow-[0_8px_24px_rgba(59,130,246,0.35)]" />
           <h1 className="text-3xl font-bold tracking-tight mb-3">WavyPDF</h1>
           <p className="text-white/60 text-sm">
             {mode === 'login'

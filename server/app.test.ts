@@ -80,7 +80,22 @@ describe("/api/extract", () => {
     await start();
     const res = await call("/api/extract", { pdf: PDF_B64 });
     expect(await res.json()).toEqual({ text: "extracted" });
-    expect(ai.extractText).toHaveBeenCalledWith(PDF_B64);
+    expect(ai.extractText).toHaveBeenCalledWith(PDF_B64, undefined);
+  });
+
+  it("passes the page range of a batch to the extractor", async () => {
+    await start();
+    const pages = { from: 9, to: 16, total: 40 };
+    expect((await call("/api/extract", { pdf: PDF_B64, pages })).status).toBe(200);
+    expect(ai.extractText).toHaveBeenCalledWith(PDF_B64, pages);
+  });
+
+  it("rejects an invalid page range", async () => {
+    await start();
+    for (const pages of [{ from: 5, to: 2, total: 9 }, { from: 1, to: 20, total: 10 }, { from: 0, to: 1, total: 1 }, { from: "1", to: 2, total: 3 }]) {
+      expect((await call("/api/extract", { pdf: PDF_B64, pages })).status).toBe(400);
+    }
+    expect(ai.extractText).not.toHaveBeenCalled();
   });
 
   it("rejects data that is not a PDF", async () => {

@@ -55,3 +55,48 @@ export function acceptChapterSuggestion(text: string, heading: string): string {
   lines[index] = `[CHAPTER: ${safeTitle}]`;
   return lines.join("\n");
 }
+
+const MARKER_TEST = /\[CHAPTER:/;
+
+/**
+ * Applies every detected heading as a chapter break in one go, but only when the
+ * text has no chapter markers yet and there are at least two headings (one
+ * heading is more likely a title than a structure).
+ */
+export function autoMarkChapters(text: string): { text: string; added: number } {
+  if (MARKER_TEST.test(text)) return { text, added: 0 };
+  const headings = detectChapterSuggestions(text);
+  if (headings.length < 2) return { text, added: 0 };
+  let out = text;
+  for (const heading of headings) out = acceptChapterSuggestion(out, heading);
+  return { text: out, added: headings.length };
+}
+
+/** About 12 minutes of narration: long enough to be a part, short enough to start listening quickly. */
+export const PART_CHARS = 12_000;
+
+/**
+ * A document with no chapters becomes "Part 1", "Part 2"… split at paragraph
+ * breaks, instead of one very long recording. Real chapters are left as they are.
+ */
+export function splitIntoParts(chapters: ChapterText[], partChars = PART_CHARS): ChapterText[] {
+  if (chapters.length !== 1 || chapters[0].title !== "Full Document" || chapters[0].text.length <= partChars * 1.25) {
+    return chapters;
+  }
+  const paragraphs = chapters[0].text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const parts: string[] = [];
+  let current = "";
+  for (const paragraph of paragraphs) {
+    if (current && current.length + paragraph.length > partChars) {
+      parts.push(current);
+      current = "";
+    }
+    current = current ? `${current}\n\n${paragraph}` : paragraph;
+  }
+  if (current) {
+    // Fold a tiny tail into the previous part rather than leaving a 30-second "part".
+    if (parts.length > 0 && current.length < partChars * 0.25) parts[parts.length - 1] += `\n\n${current}`;
+    else parts.push(current);
+  }
+  return parts.map((text, i) => ({ title: `Part ${i + 1}`, text }));
+}

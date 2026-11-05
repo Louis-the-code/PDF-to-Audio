@@ -1,4 +1,4 @@
-import { AlertCircle, X } from "lucide-react";
+import { AlertCircle, PenLine, X } from "lucide-react";
 import { motion } from "motion/react";
 import { lazy, Suspense, useCallback, useEffect, useRef } from "react";
 import { useCloudSave } from "../hooks/useCloudSave";
@@ -9,9 +9,11 @@ import { useVoicePreview } from "../hooks/useVoicePreview";
 import { errorMessage } from "../lib/errors";
 import { ChapterEditor } from "./wavy/ChapterEditor";
 import { PlaylistPlayer } from "./wavy/PlaylistPlayer";
+import { ProcessingPanel } from "./wavy/ProcessingPanel";
 import { SettingsPanel } from "./wavy/SettingsPanel";
 import { UploadZone } from "./wavy/UploadZone";
 import { AnimatedDownloadButton } from "./ui/AnimatedDownloadButton";
+import { bouncy } from "../lib/motion";
 
 // react-pdf and pdf.js are large and only needed once a file is chosen.
 const DocumentPreview = lazy(() => import("./wavy/DocumentPreview"));
@@ -41,7 +43,11 @@ export function WavyPDF() {
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
 
-  const showActions = conversion.isProcessing || conversion.audioUrl;
+  const playerRef = useRef<HTMLDivElement>(null);
+  const playFrom = (index: number) => {
+    conversion.setChapterIndex(index);
+    playerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   return (
     <div ref={containerRef} className="relative min-h-screen w-full bg-transparent flex flex-col items-center justify-center overflow-hidden">
@@ -92,11 +98,12 @@ export function WavyPDF() {
             onFormatChange={settings.setFormat}
             maxChars={settings.maxChars}
             onMaxCharsChange={settings.setMaxChars}
+            reviewFirst={settings.reviewFirst}
+            onReviewFirstChange={settings.setReviewFirst}
           />
         )}
 
         <motion.div
-          layout
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
@@ -104,7 +111,6 @@ export function WavyPDF() {
         >
           {error && (
             <motion.div
-              layout
               role="alert"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -118,35 +124,68 @@ export function WavyPDF() {
             </motion.div>
           )}
 
-          {step === "idle" ? (
+          {step === "idle" && (
             <div className="w-full max-w-2xl">
               <UploadZone onFile={conversion.processFile} />
             </div>
-          ) : (
-            <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
-              {showActions && (
-                <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                  <AnimatedDownloadButton
-                    isProcessing={conversion.isProcessing}
-                    audioUrl={conversion.audioUrl}
-                    statusMessage={conversion.statusMessage}
-                    format={settings.format}
-                  />
-                </motion.div>
+          )}
+
+          {/* While working: listen to finished sections, and see everything else in one big panel. */}
+          {conversion.isProcessing && (
+            <div className="flex w-full flex-col items-center gap-6">
+              {conversion.playlist.length > 0 && (
+                <div ref={playerRef} className="w-full">
+                  <PlaylistPlayer playlist={conversion.playlist} index={conversion.chapterIndex} onIndexChange={conversion.setChapterIndex} cloud={cloud} canSave={false} />
+                </div>
               )}
-              <button
-                onClick={conversion.reset}
-                className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full text-sm font-medium transition-colors border border-white/10"
-              >
-                {conversion.isProcessing ? "Cancel" : "Start Over"}
-              </button>
+              <ProcessingPanel
+                progress={conversion.progress}
+                statusMessage={conversion.statusMessage}
+                outline={conversion.outline}
+                playableCount={conversion.playlist.length}
+                onPlay={playFrom}
+                onCancel={conversion.reset}
+              />
             </div>
           )}
 
-          {step !== "idle" && (
-            <motion.div layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-4xl mt-8 flex flex-col gap-6">
+          {(step === "review" || step === "done") && (
+            <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
+              {step === "done" && conversion.audioUrl && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  <AnimatedDownloadButton isProcessing={false} audioUrl={conversion.audioUrl} statusMessage="" format={settings.format} />
+                </motion.div>
+              )}
+              {step === "done" && (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  transition={bouncy}
+                  onClick={conversion.editText}
+                  className="flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full text-sm font-medium transition-colors border border-white/10"
+                >
+                  <PenLine className="w-4 h-4" />
+                  Edit text
+                </motion.button>
+              )}
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                transition={bouncy}
+                onClick={conversion.reset}
+                className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full text-sm font-medium transition-colors border border-white/10"
+              >
+                Start Over
+              </motion.button>
+            </div>
+          )}
+
+          {(step === "review" || step === "done") && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-4xl mt-8 flex flex-col gap-6">
               {step === "done" && conversion.playlist.length > 0 && (
-                <PlaylistPlayer playlist={conversion.playlist} index={conversion.chapterIndex} onIndexChange={conversion.setChapterIndex} cloud={cloud} />
+                <div ref={playerRef}>
+                  <PlaylistPlayer playlist={conversion.playlist} index={conversion.chapterIndex} onIndexChange={conversion.setChapterIndex} cloud={cloud} />
+                </div>
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
@@ -161,6 +200,7 @@ export function WavyPDF() {
                   onTextChange={conversion.setExtractedText}
                   suggestions={conversion.suggestions}
                   onAccept={conversion.acceptSuggestion}
+                  onAcceptAll={conversion.acceptAllSuggestions}
                   onDismiss={conversion.dismissSuggestion}
                   onDismissAll={conversion.dismissAllSuggestions}
                   onAutoDetect={conversion.redetectSuggestions}

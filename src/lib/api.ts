@@ -54,7 +54,9 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const api = {
-  extractPdf: (pdfBase64: string) => post<{ text: string }>("/extract", { pdf: pdfBase64 }).then((r) => r.text),
+  /** `pages` tells the server which part of a larger document this batch is. */
+  extractPdf: (pdfBase64: string, pages?: { from: number; to: number; total: number }) =>
+    post<{ text: string }>("/extract", { pdf: pdfBase64, pages }).then((r) => r.text),
   cleanupText: (text: string) => post<{ text: string }>("/cleanup", { text }).then((r) => r.text),
   /** Returns base64 of 16-bit PCM audio. */
   synthesize: (text: string, voice: Voice) => post<{ audio: string }>("/tts", { text, voice }).then((r) => r.audio),
