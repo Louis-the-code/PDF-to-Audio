@@ -1,15 +1,21 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-// @ts-ignore
-import lamejs from "lamejs";
+import { Mp3Encoder } from "@breezystack/lamejs";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 export async function pcmToMp3(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Promise<Blob> {
-  const mp3encoder = new lamejs.Mp3Encoder(numChannels, sampleRate, 128); // 128kbps
-  const mp3Data: Int8Array[] = [];
+  const mp3encoder = new Mp3Encoder(numChannels, sampleRate, 128); // 128kbps
+  const mp3Data: Uint8Array[] = [];
   
   // Convert Uint8Array to Int16Array
   const int16Data = new Int16Array(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength / 2);
@@ -35,7 +41,7 @@ export async function pcmToMp3(pcmData: Uint8Array, sampleRate: number = 24000, 
     mp3Data.push(mp3buf);
   }
   
-  return new Blob(mp3Data, { type: 'audio/mp3' });
+  return new Blob(mp3Data, { type: 'audio/mpeg' });
 }
 
 export async function pcmToWav(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Promise<Blob> {

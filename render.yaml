@@ -1,0 +1,26 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# In Render: New + → Blueprint → pick this repo. You'll be asked for the secrets below.
+services:
+  - type: web
+    name: pdf-to-audio
+    runtime: node
+    plan: free # sleeps when idle; switch to "starter" to keep it always on
+    branch: main
+    autoDeploy: true
+    # NODE_ENV=production makes npm skip devDependencies, but the build needs Vite/esbuild.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      # Server-only secret. Never prefix with VITE_.
+      - key: GEMINI_API_KEY
+        sync: false
+      # Public Supabase values. They must exist at build time: Vite bakes them into the page.
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false

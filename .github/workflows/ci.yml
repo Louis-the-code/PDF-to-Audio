@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      # Build with a fake key, then make sure it never reaches the browser bundle.
+      - run: npm run build
+        env:
+          GEMINI_API_KEY: ci-sentinel-key
+      - name: Ensure the Gemini key is not in the client bundle
+        run: |
+          if grep -rq "ci-sentinel-key" dist/assets; then
+            echo "GEMINI_API_KEY leaked into the browser bundle" >&2
+            exit 1
+          fi
