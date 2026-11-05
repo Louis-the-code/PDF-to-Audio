@@ -1,151 +1,176 @@
-import { AlertCircle, RotateCcw, X } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import { useCallback } from "react";
+import { AlertCircle, X } from "lucide-react";
+import { motion } from "motion/react";
+import { lazy, Suspense, useCallback, useEffect, useRef } from "react";
 import { useCloudSave } from "../hooks/useCloudSave";
 import { useConversion } from "../hooks/useConversion";
 import { useSettings } from "../hooks/useSettings";
+import { useTubesCursor } from "../hooks/useTubesCursor";
 import { useVoicePreview } from "../hooks/useVoicePreview";
 import { errorMessage } from "../lib/errors";
-import { fade, panelSwap } from "../lib/motion";
 import { ChapterEditor } from "./wavy/ChapterEditor";
-import { ListenPanel } from "./wavy/ListenPanel";
-import { StatusPanel } from "./wavy/StatusPanel";
+import { PlaylistPlayer } from "./wavy/PlaylistPlayer";
+import { SettingsPanel } from "./wavy/SettingsPanel";
 import { UploadZone } from "./wavy/UploadZone";
-import { VoicePicker } from "./wavy/VoicePicker";
+import { AnimatedDownloadButton } from "./ui/AnimatedDownloadButton";
+
+// react-pdf and pdf.js are large and only needed once a file is chosen.
+const DocumentPreview = lazy(() => import("./wavy/DocumentPreview"));
 
 export function WavyPDF() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
   const settings = useSettings();
   const conversion = useConversion(settings);
   const { step, error, setError } = conversion;
   const cloud = useCloudSave({ playlist: conversion.playlist, format: settings.format, title: conversion.fileName });
   const preview = useVoicePreview(useCallback((err: unknown) => setError(errorMessage(err)), [setError]));
 
-  const voicePicker = (
-    <VoicePicker
-      voice={settings.voice}
-      onVoiceChange={settings.setVoice}
-      onPreview={preview.play}
-      loadingPreviewVoice={preview.loadingVoice}
-      format={settings.format}
-      onFormatChange={settings.setFormat}
-      maxChars={settings.maxChars}
-      onMaxCharsChange={settings.setMaxChars}
-    />
-  );
+  useTubesCursor(canvasRef);
 
-  const heading = {
-    idle: { title: "Turn a PDF into an audiobook.", sub: "Choose a voice, add your document, and listen anywhere." },
-    extracting: { title: "Reading your document", sub: "Pulling out the text and spotting chapters." },
-    review: { title: "Check the text", sub: "Fix anything that reads oddly and add chapter breaks, then generate." },
-    generating: { title: "Recording your audiobook", sub: "You can keep reading the text while the voice works." },
-    done: { title: "Your audiobook is ready", sub: "Listen here, download it, or save it to your Library." },
-  }[step];
+  // Track the pointer through CSS variables so moving the mouse doesn't re-render this component.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onMove = (e: globalThis.MouseEvent) => {
+      const rect = el.getBoundingClientRect();
+      el.style.setProperty("--mx", `${e.clientX - rect.left}px`);
+      el.style.setProperty("--my", `${e.clientY - rect.top}px`);
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, []);
+
+  const showActions = conversion.isProcessing || conversion.audioUrl;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 pb-24 pt-10 sm:px-6 sm:pt-14">
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4 sm:mb-10">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div key={step} {...panelSwap} transition={fade} className="max-w-2xl">
-            <h1 className={`font-semibold ${step === "idle" ? "text-4xl leading-[1.05] tracking-[-0.03em] sm:text-6xl" : "text-3xl sm:text-4xl"}`}>{heading.title}</h1>
-            <p className="mt-3 text-lg text-mist-muted">{heading.sub}</p>
-          </motion.div>
-        </AnimatePresence>
-        {step !== "idle" && !conversion.isProcessing && (
-          <button
-            type="button"
-            onClick={conversion.reset}
-            className="press flex h-10 items-center gap-2 rounded-xl border border-white/[0.1] px-4 text-sm font-medium text-mist-muted hover:border-white/20 hover:text-mist"
-          >
-            <RotateCcw className="h-4 w-4" />
-            Start Over
-          </button>
+    <div ref={containerRef} className="relative min-h-screen w-full bg-transparent flex flex-col items-center justify-center overflow-hidden">
+      <canvas ref={canvasRef} className="absolute inset-0 z-0 block h-full w-full pointer-events-none" />
+
+      <div
+        className="absolute inset-0 z-0 opacity-30 transition-opacity duration-1000 pointer-events-none"
+        style={{ background: "radial-gradient(600px circle at var(--mx, 0px) var(--my, 0px), rgba(255,255,255,0.08), transparent 40%)" }}
+      />
+
+      <div className="absolute inset-0 z-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:50px_50px] pointer-events-none" />
+
+      <div className="z-10 flex flex-col items-center justify-center text-center px-4 max-w-3xl">
+        <motion.h1
+          initial={{ opacity: 0, y: 40, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          className="text-5xl md:text-7xl font-bold tracking-tighter text-white mb-6 flex gap-3 md:gap-4 justify-center cursor-default"
+        >
+          {["PDF", "to", "Audio."].map((word, i) => (
+            <motion.span
+              key={word}
+              whileHover={{ scale: 1.1, rotate: i % 2 === 0 ? 2 : -2, textShadow: "0px 0px 20px rgba(255,255,255,0.8)" }}
+              transition={{ type: "spring", stiffness: 300, damping: 10 }}
+              className="inline-block"
+            >
+              {word}
+            </motion.span>
+          ))}
+        </motion.h1>
+
+        <motion.p
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          className="text-white/60 text-lg md:text-xl mb-12 max-w-xl"
+        >
+          Transform your documents into high-fidelity, narrated audio experiences with intelligent sectioning.
+        </motion.p>
+
+        {step === "idle" && (
+          <SettingsPanel
+            voice={settings.voice}
+            onVoiceChange={settings.setVoice}
+            onPreview={preview.play}
+            loadingPreviewVoice={preview.loadingVoice}
+            format={settings.format}
+            onFormatChange={settings.setFormat}
+            maxChars={settings.maxChars}
+            onMaxCharsChange={settings.setMaxChars}
+          />
         )}
-      </div>
 
-      <AnimatePresence>
-        {error && (
-          <motion.div
-            role="alert"
-            initial={{ opacity: 0, transform: "translateY(-6px)" }}
-            animate={{ opacity: 1, transform: "translateY(0px)" }}
-            exit={{ opacity: 0 }}
-            transition={fade}
-            className="mb-6 flex items-start gap-3 rounded-2xl border border-danger/25 bg-danger/10 px-4 py-3.5 text-danger"
-          >
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-            <p className="flex-1 text-sm leading-relaxed">{error}</p>
-            <button type="button" onClick={() => setError(null)} aria-label="Dismiss error" className="press grid h-7 w-7 shrink-0 place-items-center rounded-lg hover:bg-danger/10">
-              <X className="h-4 w-4" />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        <motion.div
+          layout
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          className="flex flex-col items-center gap-8 w-full"
+        >
+          {error && (
+            <motion.div
+              layout
+              role="alert"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex items-start gap-3 px-6 py-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 max-w-md text-left"
+            >
+              <AlertCircle className="w-6 h-6 shrink-0 mt-0.5" />
+              <p className="text-sm leading-relaxed flex-1">{error}</p>
+              <button onClick={() => setError(null)} aria-label="Dismiss error" className="shrink-0 text-red-400/70 hover:text-red-300">
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          )}
 
-      {step === "idle" ? (
-        <div className="grid gap-5 lg:grid-cols-[1.15fr_1fr] lg:gap-6">
-          <UploadZone onFile={conversion.processFile} />
-          {voicePicker}
-        </div>
-      ) : (
-        <div className="grid gap-5 lg:grid-cols-[1.15fr_1fr] lg:items-start lg:gap-6">
-          {/* On phones the actions come first; on desktop they sit beside the document. */}
-          <div className="order-2 lg:order-1">
-            <ChapterEditor
-              step={step}
-              fileName={conversion.fileName}
-              pdfUrl={conversion.pdfUrl}
-              text={conversion.extractedText}
-              onTextChange={conversion.setExtractedText}
-              suggestions={conversion.suggestions}
-              onAccept={conversion.acceptSuggestion}
-              onDismiss={conversion.dismissSuggestion}
-              onDismissAll={conversion.dismissAllSuggestions}
-              onAutoDetect={conversion.redetectSuggestions}
-            />
-          </div>
-
-          <div className="order-1 lg:sticky lg:top-24 lg:order-2">
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div key={step} {...panelSwap} transition={fade} className="space-y-5">
-                {step === "extracting" && (
-                  <StatusPanel title="Reading your PDF" message={conversion.statusMessage} seed={conversion.fileName ?? "doc"} onCancel={conversion.reset} />
-                )}
-                {step === "review" && (
-                  <>
-                    {voicePicker}
-                    <button
-                      type="button"
-                      onClick={conversion.generateAudio}
-                      className="press flex h-14 w-full items-center justify-center rounded-2xl bg-signal text-base font-semibold text-ink-950 shadow-signal hover:bg-signal-strong"
-                    >
-                      Generate Audio
-                    </button>
-                  </>
-                )}
-                {step === "generating" && (
-                  <StatusPanel
-                    title="Generating audio"
-                    message={conversion.statusMessage}
-                    progress={conversion.progress}
-                    seed={conversion.fileName ?? "doc"}
-                    onCancel={conversion.reset}
-                  />
-                )}
-                {step === "done" && conversion.playlist.length > 0 && (
-                  <ListenPanel
-                    playlist={conversion.playlist}
-                    index={conversion.chapterIndex}
-                    onIndexChange={conversion.setChapterIndex}
-                    fileName={conversion.fileName}
+          {step === "idle" ? (
+            <div className="w-full max-w-2xl">
+              <UploadZone onFile={conversion.processFile} />
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
+              {showActions && (
+                <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  <AnimatedDownloadButton
+                    isProcessing={conversion.isProcessing}
+                    audioUrl={conversion.audioUrl}
+                    statusMessage={conversion.statusMessage}
                     format={settings.format}
-                    cloud={cloud}
                   />
+                </motion.div>
+              )}
+              <button
+                onClick={conversion.reset}
+                className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full text-sm font-medium transition-colors border border-white/10"
+              >
+                {conversion.isProcessing ? "Cancel" : "Start Over"}
+              </button>
+            </div>
+          )}
+
+          {step !== "idle" && (
+            <motion.div layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-4xl mt-8 flex flex-col gap-6">
+              {step === "done" && conversion.playlist.length > 0 && (
+                <PlaylistPlayer playlist={conversion.playlist} index={conversion.chapterIndex} onIndexChange={conversion.setChapterIndex} cloud={cloud} />
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                {conversion.pdfUrl && (
+                  <Suspense fallback={<div className="h-96 rounded-2xl border border-white/10 bg-black/40" />}>
+                    <DocumentPreview url={conversion.pdfUrl} />
+                  </Suspense>
                 )}
-              </motion.div>
-            </AnimatePresence>
-          </div>
-        </div>
-      )}
+                <ChapterEditor
+                  step={step}
+                  text={conversion.extractedText}
+                  onTextChange={conversion.setExtractedText}
+                  suggestions={conversion.suggestions}
+                  onAccept={conversion.acceptSuggestion}
+                  onDismiss={conversion.dismissSuggestion}
+                  onDismissAll={conversion.dismissAllSuggestions}
+                  onAutoDetect={conversion.redetectSuggestions}
+                  onGenerate={conversion.generateAudio}
+                />
+              </div>
+            </motion.div>
+          )}
+        </motion.div>
+      </div>
     </div>
   );
 }

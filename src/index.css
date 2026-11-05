@@ -2,53 +2,20 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
-@import "@fontsource-variable/bricolage-grotesque";
 
 @custom-variant dark (&:is(.dark *));
 
-/* ── WavyPDF design tokens ────────────────────────────────────────────────
-   Ink: the listening studio (page + surfaces). Signal: the one warm accent,
-   used for the main action and the waveform. Paper: document text surfaces. */
 @theme {
-  --color-ink-950: #0d0b16;
-  --color-ink-900: #15121f;
-  --color-ink-800: #1e1a2c;
-  --color-ink-700: #2a2540;
-  --color-ink-600: #3a3456;
-  --color-mist: #f4f2fa;
-  --color-mist-muted: #a9a4be;
-  --color-mist-faint: #6f6a86;
-  --color-signal: #ff8a5c;
-  --color-signal-strong: #ff7444;
-  --color-amber: #ffc170;
-  --color-lilac: #b9a6ff;
-  --color-paper: #edeef5;
-  --color-paper-ink: #1c1a29;
-  --color-paper-muted: #5e5a72;
-  --color-ok: #7ddba8;
-  --color-danger: #ff7b7b;
-
-  --font-display: "Bricolage Grotesque Variable", "Geist Variable", system-ui, sans-serif;
-
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-
-  --shadow-lift: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 12px 32px -12px rgb(0 0 0 / 0.6);
-  --shadow-paper: 0 24px 48px -24px rgb(0 0 0 / 0.7), 0 2px 6px rgb(0 0 0 / 0.25);
-  --shadow-signal: 0 8px 24px -8px rgb(255 138 92 / 0.55);
+  --color-background: #000000;
+  --color-foreground: #ffffff;
+  --shadow-glow-white: 0 0 20px rgba(255, 255, 255, 0.15);
+  --shadow-glow-premium: 0 0 30px rgba(255, 255, 255, 0.3);
 }
 
-/* Instant, compositor-only press feedback for anything pressable. */
-@utility press {
-  transition: transform 140ms var(--ease-out), background-color 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 200ms ease;
-  &:active:not(:disabled) {
-    transform: scale(0.97);
-  }
-}
-
-@utility font-display {
-  font-family: var(--font-display);
-  font-optical-sizing: auto;
+@utility transition-glow {
+  transition-property: box-shadow, transform, background-color;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
 }
 
 @theme inline {
@@ -167,44 +134,10 @@
   * {
     @apply border-border outline-ring/50;
   }
+  body {
+    @apply bg-background text-foreground;
+  }
   html {
     @apply font-sans;
-    background: var(--color-ink-950);
-    color: var(--color-mist);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-  body {
-    background: var(--color-ink-950);
-    color: var(--color-mist);
-  }
-  ::selection {
-    background: rgb(255 138 92 / 0.35);
-    color: var(--color-mist);
-  }
-  /* One consistent, clearly visible keyboard focus ring. */
-  :focus-visible {
-    outline: 2px solid var(--color-signal);
-    outline-offset: 2px;
-  }
-  h1, h2, h3 {
-    font-family: var(--font-display);
-    letter-spacing: -0.02em;
-    text-wrap: balance;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .glass {
-    background: var(--color-ink-900) !important;
-    backdrop-filter: none !important;
   }
 }
