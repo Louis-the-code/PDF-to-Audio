@@ -1,10 +1,13 @@
 import { Check, Loader2, Play } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import type { ChapterState, Progress } from "../../hooks/useConversion";
+import { overallProgress, type ChapterState, type Progress } from "../../hooks/useConversion";
 import { bouncy } from "../../lib/motion";
+import { formatRemaining } from "../../lib/eta";
 
 interface Props {
   progress: Progress | null;
+  /** Estimated time left for the current step, once it can be estimated. */
+  remainingMs: number | null;
   statusMessage: string;
   outline: { title: string; state: ChapterState }[];
   /** How many chapters, from the start, can be played right now. */
@@ -15,15 +18,8 @@ interface Props {
 
 const STEPS = ["Read document", "Find chapters", "Create voice", "Ready"];
 
-/** Reading counts for the first quarter of the bar, voicing for the rest. */
-function overall(progress: Progress | null): number {
-  if (!progress) return 0;
-  const fraction = progress.total > 0 ? progress.done / progress.total : 0;
-  return progress.stage === "reading" ? fraction * 0.25 : 0.25 + fraction * 0.75;
-}
-
-export function ProcessingPanel({ progress, statusMessage, outline, playableCount, onPlay, onCancel }: Props) {
-  const value = overall(progress);
+export function ProcessingPanel({ progress, remainingMs, statusMessage, outline, playableCount, onPlay, onCancel }: Props) {
+  const value = overallProgress(progress);
   const percent = Math.round(value * 100);
   const activeStep = progress?.stage === "voicing" ? 2 : 0;
   const readyCount = outline.filter((c) => c.state === "ready").length;
@@ -45,6 +41,7 @@ export function ProcessingPanel({ progress, statusMessage, outline, playableCoun
             {progress?.stage === "voicing" ? "Creating your audio" : "Reading your document"}
           </h2>
           <p className="mt-1 truncate text-sm text-white/50">{statusMessage || "Getting started…"}</p>
+          {remainingMs !== null && <p className="mt-1 text-sm font-medium text-white/80">{formatRemaining(remainingMs)}</p>}
         </div>
         <span className="font-bold tabular-nums text-4xl tracking-tight text-white" aria-label={`${percent} percent`}>
           {percent}%

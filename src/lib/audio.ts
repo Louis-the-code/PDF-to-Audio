@@ -1,5 +1,5 @@
 import { TTS_CHANNELS, TTS_SAMPLE_RATE } from "../../shared/config";
-import { base64ToBytes, pcmToMp3, pcmToWav } from "./utils";
+import { pcmToMp3, pcmToWav } from "./utils";
 
 export type AudioFormat = "mp3" | "wav";
 
@@ -18,10 +18,10 @@ export function mergePcm(segments: Int16Array[]): Int16Array {
   return merged;
 }
 
-export function base64ToPcm(base64: string): Int16Array {
-  const bytes = base64ToBytes(base64);
-  // Copy so the Int16Array owns an aligned buffer, whatever byteOffset the decoder gave us.
-  return new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength - (bytes.byteLength % 2)));
+/** 16-bit PCM from raw bytes; a trailing odd byte is dropped. */
+export function bytesToPcm(buffer: ArrayBuffer): Int16Array {
+  const usable = buffer.byteLength - (buffer.byteLength % 2);
+  return new Int16Array(usable === buffer.byteLength ? buffer : buffer.slice(0, usable));
 }
 
 export function encodePcm(pcm: Int16Array, format: AudioFormat): Promise<Blob> {

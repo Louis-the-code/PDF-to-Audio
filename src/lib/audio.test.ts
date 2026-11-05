@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { base64ToPcm, mergePcm } from "./audio";
+import { bytesToPcm, mergePcm } from "./audio";
 
 describe("mergePcm", () => {
   it("concatenates segments with half a second of silence after each", () => {
@@ -11,14 +11,12 @@ describe("mergePcm", () => {
   });
 });
 
-describe("base64ToPcm", () => {
-  it("decodes little-endian 16-bit samples", () => {
-    const base64 = Buffer.from([0x01, 0x00, 0xff, 0xff]).toString("base64");
-    expect([...base64ToPcm(base64)]).toEqual([1, -1]);
+describe("bytesToPcm", () => {
+  it("reads little-endian 16-bit samples", () => {
+    expect([...bytesToPcm(Uint8Array.of(0x01, 0x00, 0xff, 0xff).buffer)]).toEqual([1, -1]);
   });
 
   it("drops a trailing odd byte instead of throwing", () => {
-    const base64 = Buffer.from([0x01, 0x00, 0x07]).toString("base64");
-    expect([...base64ToPcm(base64)]).toEqual([1]);
+    expect([...bytesToPcm(Uint8Array.of(0x01, 0x00, 0x07).buffer)]).toEqual([1]);
   });
 });

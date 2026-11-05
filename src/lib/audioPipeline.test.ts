@@ -11,7 +11,8 @@ vi.mock("./retry", async (orig) => {
 
 import { createGenerationCache, generateChapters, isAbortError, planChapters } from "./audioPipeline";
 
-const pcmBase64 = Buffer.from(new Int16Array([1, 2, 3, 4]).buffer).toString("base64");
+/** Raw PCM as the server now sends it (a fresh buffer per response, like fetch). */
+const pcm = () => new Int16Array([1, 2, 3, 4]).buffer;
 const base = { voice: "Kore" as const, format: "wav" as const, maxChars: 30, onStatus: () => {} };
 // Two chapters, three segments in total at maxChars=30.
 const TEXT = "[CHAPTER: One]\nFirst sentence is here. Second sentence is here.\n[CHAPTER: Two]\nOther chapter text.";
@@ -25,10 +26,12 @@ beforeEach(() => {
 
 describe("generateChapters", () => {
   it("builds one blob per chapter in order", async () => {
-    synthesize.mockResolvedValue(pcmBase64);
+    synthesize.mockImplementation(async () => pcm());
     const out = await generateChapters({ ...base, text: TEXT, cache: createGenerationCache(), signal: new AbortController().signal });
     expect(out.map((c) => c.title)).toEqual(["One", "Two"]);
     expect(synthesize).toHaveBeenCalledTimes(3);
+    // Real audio made it through: 4 samples per segment plus the pause, as a WAV.
+    expect(out[0].blob.size).toBeGreaterThan(44 + 2 * 4 * 2);
   });
 
   it("runs voice requests in parallel and publishes chapters as soon as they are ready", async () => {
@@ -39,7 +42,7 @@ describe("generateChapters", () => {
       peak = Math.max(peak, active);
       await tick();
       active--;
-      return pcmBase64;
+      return pcm();
     });
     const text = Array.from({ length: 6 }, (_, i) => `[CHAPTER: C${i}]\nSentence number ${i} is here.`).join("\n");
     const ready: number[] = [];
@@ -61,7 +64,7 @@ describe("generateChapters", () => {
         limited = true;
         throw new ApiError(429, "slow down", "AI_RATE_LIMITED", 1);
       }
-      return pcmBase64;
+      return pcm();
     });
     const text = Array.from({ length: 8 }, (_, i) => `[CHAPTER: C${i}]\nSentence number ${i} is here.`).join("\n");
     const out = await generateChapters({ ...base, text, cache: createGenerationCache(), signal: new AbortController().signal, concurrency: 4 });
@@ -70,7 +73,7 @@ describe("generateChapters", () => {
   });
 
   it("reports progress up to the total", async () => {
-    synthesize.mockResolvedValue(pcmBase64);
+    synthesize.mockImplementation(async () => pcm());
     const progress: number[] = [];
     await generateChapters({ ...base, text: TEXT, cache: createGenerationCache(), signal: new AbortController().signal, onProgress: (d, t) => progress.push(d / t) });
     expect(progress[progress.length - 1]).toBe(1);
@@ -78,10 +81,10 @@ describe("generateChapters", () => {
 
   it("resumes after a failure without paying for finished work again", async () => {
     const cache = createGenerationCache();
-    synthesize.mockResolvedValueOnce(pcmBase64).mockRejectedValueOnce(new ApiError(422, "rejected", "AI_REJECTED"));
+    synthesize.mockImplementationOnce(async () => pcm()).mockRejectedValueOnce(new ApiError(422, "rejected", "AI_REJECTED"));
     await expect(generateChapters({ ...base, text: TEXT, cache, signal: new AbortController().signal, concurrency: 1 })).rejects.toThrow("rejected");
 
-    synthesize.mockReset().mockResolvedValue(pcmBase64);
+    synthesize.mockReset().mockImplementation(async () => pcm());
     const out = await generateChapters({ ...base, text: TEXT, cache, signal: new AbortController().signal, concurrency: 1 });
     expect(out).toHaveLength(2);
     expect(synthesize).toHaveBeenCalledTimes(2); // 3 segments, 1 already cached
@@ -89,7 +92,7 @@ describe("generateChapters", () => {
 
   it("reuses finished chapters when only another chapter's text changed", async () => {
     const cache = createGenerationCache();
-    synthesize.mockResolvedValue(pcmBase64);
+    synthesize.mockImplementation(async () => pcm());
     await generateChapters({ ...base, text: TEXT, cache, signal: new AbortController().signal });
     synthesize.mockClear();
     await generateChapters({ ...base, text: TEXT.replace("Other chapter text.", "Edited text."), cache, signal: new AbortController().signal });
@@ -98,7 +101,7 @@ describe("generateChapters", () => {
 
   it("frees raw audio once a chapter is encoded, but keeps segments another chapter still needs", async () => {
     const cache = createGenerationCache();
-    synthesize.mockResolvedValue(pcmBase64);
+    synthesize.mockImplementation(async () => pcm());
     const text = "[CHAPTER: A]\nSame line here.\n[CHAPTER: B]\nSame line here.";
     const out = await generateChapters({ ...base, text, cache, signal: new AbortController().signal, concurrency: 1 });
     expect(out).toHaveLength(2);
@@ -108,7 +111,7 @@ describe("generateChapters", () => {
 
   it("does not reuse audio for a different voice", async () => {
     const cache = createGenerationCache();
-    synthesize.mockResolvedValue(pcmBase64);
+    synthesize.mockImplementation(async () => pcm());
     await generateChapters({ ...base, text: "Hello there.", cache, signal: new AbortController().signal });
     await generateChapters({ ...base, voice: "Puck", text: "Hello there.", cache, signal: new AbortController().signal });
     expect(synthesize).toHaveBeenCalledTimes(2);
@@ -118,7 +121,7 @@ describe("generateChapters", () => {
     const controller = new AbortController();
     synthesize.mockImplementation(async () => {
       controller.abort();
-      return pcmBase64;
+      return pcm();
     });
     const err = await generateChapters({ ...base, text: TEXT, cache: createGenerationCache(), signal: controller.signal, concurrency: 1 }).catch((e) => e);
     expect(isAbortError(err)).toBe(true);

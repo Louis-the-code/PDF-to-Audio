@@ -23,7 +23,7 @@ async function accessToken(): Promise<string> {
   return token;
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+async function request(path: string, body: unknown): Promise<Response> {
   const token = await accessToken();
 
   let response: Response;
@@ -50,7 +50,11 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     const retryAfter = Number(response.headers.get("Retry-After"));
     throw new ApiError(response.status, message, code, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined);
   }
-  return (await response.json()) as T;
+  return response;
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  return (await (await request(path, body)).json()) as T;
 }
 
 export const api = {
@@ -58,7 +62,7 @@ export const api = {
   extractPdf: (pdfBase64: string, pages?: { from: number; to: number; total: number }) =>
     post<{ text: string }>("/extract", { pdf: pdfBase64, pages }).then((r) => r.text),
   cleanupText: (text: string) => post<{ text: string }>("/cleanup", { text }).then((r) => r.text),
-  /** Returns base64 of 16-bit PCM audio. */
-  synthesize: (text: string, voice: Voice) => post<{ audio: string }>("/tts", { text, voice }).then((r) => r.audio),
+  /** Returns raw 16-bit little-endian PCM audio. */
+  synthesize: async (text: string, voice: Voice) => (await request("/tts", { text, voice })).arrayBuffer(),
   previewVoice: (voice: Voice) => post<{ audio: string }>("/preview", { voice }).then((r) => r.audio),
 };

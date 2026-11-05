@@ -5,6 +5,7 @@ import { createGenerationCache, generateChapters, isAbortError, planChapters, ty
 import { acceptChapterSuggestion, autoMarkChapters, detectChapterSuggestions } from "../lib/chapters";
 import { extractDocumentText } from "../lib/documentText";
 import { errorMessage } from "../lib/errors";
+import { estimateRemainingMs, type StageStart } from "../lib/eta";
 
 export type Step = "idle" | "extracting" | "review" | "generating" | "done";
 
@@ -14,6 +15,13 @@ export interface Progress {
   stage: "reading" | "voicing";
   done: number;
   total: number;
+}
+
+/** One number for the whole job: reading is the first quarter, voicing the rest. */
+export function overallProgress(progress: Progress | null): number {
+  if (!progress) return 0;
+  const fraction = progress.total > 0 ? progress.done / progress.total : 0;
+  return progress.stage === "reading" ? fraction * 0.25 : 0.25 + fraction * 0.75;
 }
 
 const revokeAll = (chapters: (GeneratedChapter | undefined)[]) => chapters.forEach((c) => c && URL.revokeObjectURL(c.url));
@@ -31,7 +39,14 @@ export function useConversion({ voice, format, maxChars, reviewFirst }: Options)
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
-  const [progress, setProgress] = useState<Progress | null>(null);
+  const [progress, setProgressState] = useState<Progress | null>(null);
+  /** When the current stage began, for the time-left estimate. */
+  const stageStartRef = useRef<StageStart | null>(null);
+  const setProgress = useCallback((next: Progress | null) => {
+    if (!next) stageStartRef.current = null;
+    else if (stageStartRef.current?.stage !== next.stage) stageStartRef.current = { stage: next.stage, time: Date.now(), done: next.done };
+    setProgressState(next);
+  }, []);
   const [fileName, setFileName] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [extractedText, setExtractedText] = useState("");
@@ -241,6 +256,7 @@ export function useConversion({ voice, format, maxChars, reviewFirst }: Options)
     setError,
     statusMessage,
     progress,
+    remainingMs: progress ? estimateRemainingMs(stageStartRef.current, progress.done, progress.total, Date.now()) : null,
     fileName,
     pdfUrl,
     extractedText,

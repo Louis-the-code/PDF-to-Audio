@@ -1,9 +1,7 @@
 import { AlertCircle, PenLine, X } from "lucide-react";
 import { motion } from "motion/react";
 import { lazy, Suspense, useCallback, useEffect, useRef } from "react";
-import { useCloudSave } from "../hooks/useCloudSave";
-import { useConversion } from "../hooks/useConversion";
-import { useSettings } from "../hooks/useSettings";
+import { useWorkspace } from "../context/Workspace";
 import { useTubesCursor } from "../hooks/useTubesCursor";
 import { useVoicePreview } from "../hooks/useVoicePreview";
 import { errorMessage } from "../lib/errors";
@@ -22,10 +20,9 @@ export function WavyPDF() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const settings = useSettings();
-  const conversion = useConversion(settings);
+  // Lives above the page, so leaving for the Library and coming back keeps everything.
+  const { settings, conversion, cloud } = useWorkspace();
   const { step, error, setError } = conversion;
-  const cloud = useCloudSave({ playlist: conversion.playlist, format: settings.format, title: conversion.fileName });
   const preview = useVoicePreview(useCallback((err: unknown) => setError(errorMessage(err)), [setError]));
 
   useTubesCursor(canvasRef);
@@ -140,6 +137,7 @@ export function WavyPDF() {
               )}
               <ProcessingPanel
                 progress={conversion.progress}
+                remainingMs={conversion.remainingMs}
                 statusMessage={conversion.statusMessage}
                 outline={conversion.outline}
                 playableCount={conversion.playlist.length}

@@ -130,7 +130,9 @@ describe("/api/tts", () => {
   it("synthesizes with a valid voice", async () => {
     await start();
     const res = await call("/api/tts", { text: "Hello.", voice: "Puck" });
-    expect(await res.json()).toEqual({ audio: "QUJD" });
+    // Raw bytes, not base64 in JSON ("QUJD" decodes to "ABC").
+    expect(res.headers.get("content-type")).toBe("application/octet-stream");
+    expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("ABC");
     expect(ai.synthesize).toHaveBeenCalledWith("Hello.", "Puck");
   });
 
