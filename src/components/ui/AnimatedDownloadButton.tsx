@@ -1,5 +1,6 @@
 import React from "react";
 import { motion, HTMLMotionProps } from "motion/react";
+import { bouncy } from "../../lib/motion";
 import { Download, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "../../lib/utils";
 
@@ -29,6 +30,7 @@ export function AnimatedDownloadButton({ className, isProcessing, audioUrl, erro
       <motion.button
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
+        transition={bouncy}
         onClick={onClick}
         className={cn(
           "relative flex items-center justify-center gap-2 px-8 py-4 bg-black text-red-400 rounded-full border border-red-500/30 transition-glow hover:shadow-[0_0_20px_rgba(239,68,68,0.2)] hover:border-red-500/50 overflow-hidden cursor-pointer",
@@ -79,6 +81,7 @@ export function AnimatedDownloadButton({ className, isProcessing, audioUrl, erro
     <motion.button
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
+      transition={bouncy}
       onClick={handleDownload}
       className={cn(
         "relative flex items-center justify-center gap-2 px-8 py-4 bg-black text-white rounded-full border border-white/20 transition-glow hover:shadow-glow-premium hover:border-white/50 overflow-hidden group cursor-pointer",
@@ -86,12 +89,16 @@ export function AnimatedDownloadButton({ className, isProcessing, audioUrl, erro
       )}
       {...props}
     >
-      <Download className="w-5 h-5 group-hover:-translate-y-1 group-hover:opacity-0 transition-all duration-300 absolute" />
-      <span className="opacity-0 group-hover:opacity-100 group-hover:-translate-y-0 translate-y-4 transition-all duration-300 absolute font-medium">
-        Download Audio
-      </span>
-      <span className="opacity-100 group-hover:opacity-0 transition-all duration-300 font-medium">
-        Ready to Download
+      {/* Icon sits beside the label (it used to be centred on top of the text). */}
+      <Download className="w-5 h-5 shrink-0 transition-transform duration-300 group-hover:translate-y-0.5" />
+      {/* Both labels share one grid cell: the button keeps its width while they swap. */}
+      <span className="grid font-medium">
+        <span className="[grid-area:1/1] transition-[opacity,transform] duration-300 group-hover:-translate-y-3 group-hover:opacity-0">
+          Ready to Download
+        </span>
+        <span className="[grid-area:1/1] translate-y-3 opacity-0 transition-[opacity,transform] duration-300 group-hover:translate-y-0 group-hover:opacity-100">
+          Download Audio
+        </span>
       </span>
     </motion.button>
   );

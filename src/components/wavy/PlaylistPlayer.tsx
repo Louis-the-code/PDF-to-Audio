@@ -1,5 +1,6 @@
 import { Check, Cloud, Loader2, SkipBack, SkipForward } from "lucide-react";
 import { motion } from "motion/react";
+import { bouncy } from "../../lib/motion";
 import type { GeneratedChapter } from "../../lib/audioPipeline";
 import { CustomAudioPlayer } from "../ui/CustomAudioPlayer";
 
@@ -20,7 +21,7 @@ export function PlaylistPlayer({ playlist, index, onIndexChange, cloud }: Props)
       layout
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="w-full max-w-2xl mx-auto p-6 rounded-[2rem] bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl flex flex-col gap-5"
+      className="w-full max-w-2xl mx-auto p-6 rounded-[2rem] bg-white/5 border border-white/10 backdrop-blur-md shadow-2xl flex flex-col gap-5"
     >
       <div className="flex items-center justify-between px-2">
         <h3 className="text-white font-semibold text-xl">Audio Chapters</h3>
@@ -33,6 +34,7 @@ export function PlaylistPlayer({ playlist, index, onIndexChange, cloud }: Props)
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
+            transition={bouncy}
             onClick={cloud.save}
             disabled={cloud.saving || cloud.saved}
             className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 hover:text-blue-300 rounded-full text-sm font-bold transition-colors disabled:opacity-50 shadow-lg shadow-blue-500/10"
@@ -50,6 +52,7 @@ export function PlaylistPlayer({ playlist, index, onIndexChange, cloud }: Props)
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
+          transition={bouncy}
           onClick={() => goTo(index - 1)}
           disabled={index === 0}
           aria-label="Previous chapter"
@@ -81,6 +84,7 @@ export function PlaylistPlayer({ playlist, index, onIndexChange, cloud }: Props)
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
+          transition={bouncy}
           onClick={() => goTo(index + 1)}
           disabled={index === playlist.length - 1}
           aria-label="Next chapter"

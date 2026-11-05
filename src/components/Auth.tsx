@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { fetchEnabledProviders, readAuthErrorFromUrl } from '../lib/authProviders';
 import { Loader2, Mail, ArrowRight, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { bouncy } from "../lib/motion";
 import { PasswordInput } from './ui/PasswordInput';
 
 import ShaderBackground from './ui/ShaderBackground';
@@ -155,7 +156,7 @@ export function Auth() {
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="w-full max-w-md bg-white/5 border border-white/10 p-8 sm:p-10 rounded-[2rem] backdrop-blur-2xl relative z-10 shadow-2xl shadow-black/50"
+        className="w-full max-w-md bg-white/5 border border-white/10 p-8 sm:p-10 rounded-[2rem] backdrop-blur-lg relative z-10 shadow-2xl shadow-black/50"
       >
         <motion.div variants={itemVariants} className="text-center mb-10">
           <div className="w-16 h-16 mx-auto bg-gradient-to-br from-blue-500 to-purple-500 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-500/20">
@@ -279,6 +280,7 @@ export function Auth() {
             variants={itemVariants}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
+            transition={bouncy}
             type="submit"
             disabled={loading}
             className="w-full bg-white text-black font-semibold rounded-2xl py-3.5 flex items-center justify-center gap-2 hover:bg-white/90 transition-all disabled:opacity-50 mt-8 shadow-[0_0_20px_rgba(255,255,255,0.1)]"
