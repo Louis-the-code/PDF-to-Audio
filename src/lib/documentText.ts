@@ -60,7 +60,7 @@ export interface ExtractOptions {
 }
 
 /** Parallel requests for page batches; lowered automatically if the provider rate-limits. */
-const PARALLEL_BATCHES = 4;
+const PARALLEL_BATCHES = 6;
 
 const busyMessage = (delay: number) => `The AI service asked us to slow down. Continuing in ${Math.round(delay / 1000)}s…`;
 

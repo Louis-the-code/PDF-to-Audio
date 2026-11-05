@@ -1,6 +1,6 @@
 import type { Voice } from "../../shared/config";
 import { api, ApiError } from "./api";
-import { base64ToPcm, encodePcm, mergePcm, type AudioFormat } from "./audio";
+import { bytesToPcm, encodePcm, mergePcm, type AudioFormat } from "./audio";
 import { chunkText } from "./chunkText";
 import { parseChapters, splitIntoParts, type ChapterText } from "./chapters";
 import { AdaptiveLimit, runPool } from "./pool";
@@ -23,8 +23,12 @@ export interface GenerationCache {
 
 export const createGenerationCache = (): GenerationCache => ({ segments: new Map(), chapters: new Map() });
 
-/** Voice requests in flight at once, at most. Lowered automatically when the provider rate-limits. */
-export const MAX_PARALLEL_VOICE_REQUESTS = 4;
+/**
+ * Voice requests in flight at once, at most. Lowered automatically when the
+ * provider rate-limits. Each response is a few MB of audio, so this also keeps
+ * a small server (e.g. 512MB) comfortably within memory.
+ */
+export const MAX_PARALLEL_VOICE_REQUESTS = 6;
 
 export interface GenerateOptions {
   text: string;
@@ -130,7 +134,7 @@ export async function generateChapters({
 
         const key = segmentKey(segment);
         if (!cache.segments.has(key)) {
-          const base64 = await withRetry(() => api.synthesize(segment, voice), {
+          const bytes = await withRetry(() => api.synthesize(segment, voice), {
             retries: 6,
             onWait: (delay, err) => {
               if (err instanceof ApiError && err.status === 429) limit.backoff();
@@ -138,7 +142,7 @@ export async function generateChapters({
             },
           });
           if (signal.aborted) return;
-          cache.segments.set(key, base64ToPcm(base64));
+          cache.segments.set(key, bytesToPcm(bytes));
           limit.success();
         }
 

@@ -10,6 +10,8 @@ import { Session } from '@supabase/supabase-js';
 import { Loader2, LogOut, Library as LibraryIcon, FileText } from 'lucide-react';
 import { motion } from 'motion/react';
 import { LogoMark } from './components/ui/Logo';
+import { WorkspaceProvider, useWorkspace } from './context/Workspace';
+import { overallProgress } from './hooks/useConversion';
 import { bouncy } from "./lib/motion";
 
 // Pages are split into their own chunks: three.js, react-pdf and pdf.js are heavy
@@ -30,7 +32,11 @@ function Spinner() {
 
 function NavLinks() {
   const location = useLocation();
-  
+  const { conversion } = useWorkspace();
+  // Work keeps going while you browse the Library; show it on the Create tab.
+  const busyElsewhere = conversion.isProcessing && location.pathname !== '/';
+  const percent = Math.round(overallProgress(conversion.progress) * 100);
+
   return (
     <div className="flex items-center gap-1 bg-white/5 p-1 rounded-full border border-white/10 relative">
       <Link 
@@ -48,6 +54,15 @@ function NavLinks() {
         )}
         <FileText className="w-4 h-4" />
         <span className="hidden sm:inline">Create</span>
+        {busyElsewhere && (
+          <span className="flex items-center gap-1.5 text-xs tabular-nums text-white" title="Still working on your audio" aria-label={`Working, ${percent} percent`}>
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
+            </span>
+            {percent}%
+          </span>
+        )}
       </Link>
       <Link 
         to="/library" 
@@ -73,6 +88,7 @@ function Layout({ session }: { session: Session }) {
   const location = useLocation();
 
   return (
+    <WorkspaceProvider>
     <div className="min-h-screen bg-black text-white font-sans selection:bg-white/30 flex flex-col relative overflow-hidden">
       <Suspense fallback={null}>
         <ShaderBackground />
@@ -114,6 +130,7 @@ function Layout({ session }: { session: Session }) {
         </motion.div>
       </main>
     </div>
+    </WorkspaceProvider>
   );
 }
 

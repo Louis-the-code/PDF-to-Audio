@@ -139,7 +139,13 @@ export function createApp({ config, verify, ai }: AppDeps): Express {
         throw new HttpError(413, `Segments are limited to ${MAX_TTS_CHARS} characters.`, "TOO_LARGE");
       }
       if (!isVoice(voice)) throw new HttpError(400, "Unknown voice.", "BAD_REQUEST");
-      res.json({ audio: await ai.synthesize(text, voice) });
+      // Raw PCM bytes, not base64 inside JSON: a few minutes of speech is ~10MB,
+      // and re-encoding it as a 13MB JSON string cost server CPU, transfer time
+      // and a slow decode in the browser.
+      const pcm = Buffer.from(await ai.synthesize(text, voice), "base64");
+      res.set("Content-Type", "application/octet-stream");
+      res.set("Cache-Control", "no-store");
+      res.send(pcm);
     }),
   );
 
