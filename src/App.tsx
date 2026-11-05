@@ -9,6 +9,7 @@ import { supabase } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import { Loader2, LogOut, Library as LibraryIcon, FileText } from 'lucide-react';
 import { motion } from 'motion/react';
+import { bouncy } from "./lib/motion";
 
 // Pages are split into their own chunks: three.js, react-pdf and pdf.js are heavy
 // and the sign-in screen needs none of the conversion code.
@@ -41,7 +42,7 @@ function NavLinks() {
           <motion.div 
             layoutId="nav-pill"
             className="absolute inset-0 bg-white rounded-full -z-10"
-            transition={{ stiffness: 300, damping: 30 }}
+            transition={{ type: "spring", stiffness: 420, damping: 26 }}
           />
         )}
         <FileText className="w-4 h-4" />
@@ -57,7 +58,7 @@ function NavLinks() {
           <motion.div 
             layoutId="nav-pill"
             className="absolute inset-0 bg-white rounded-full -z-10"
-            transition={{ stiffness: 300, damping: 30 }}
+            transition={{ type: "spring", stiffness: 420, damping: 26 }}
           />
         )}
         <LibraryIcon className="w-4 h-4" />
@@ -94,6 +95,7 @@ function Layout({ session }: { session: Session }) {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              transition={bouncy}
               onClick={() => supabase?.auth.signOut()}
               className="p-2 hover:bg-red-500/10 rounded-full transition-colors text-white/70 hover:text-red-400 border border-transparent hover:border-red-500/20"
               title="Sign Out"

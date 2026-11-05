@@ -5,6 +5,8 @@ declare module "threejs-components/build/cursors/tubes1.min.js" {
       setLightsColors(colors: string[]): void;
     };
     dispose?: () => void;
+    /** The library's renderer wrapper. */
+    three?: { minPixelRatio: number; maxPixelRatio: number; resize?: () => void };
   }
   export default function createTubesCursor(canvas: HTMLCanvasElement, options?: unknown): TubesCursor;
 }

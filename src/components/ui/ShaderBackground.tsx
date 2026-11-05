@@ -35,13 +35,19 @@ const fragmentShader = `
     float noise = sin(uv.x * 20.0 + time) * cos(uv.y * 15.0 + time * 0.8);
     noise += sin(uv.x * 35.0 - time * 2.0) * cos(uv.y * 25.0 + time * 1.2) * 0.5;
     
-    // Mix colors based on noise and position
-    vec3 color = mix(color1, color2, noise * 0.5 + 0.5);
-    color = mix(color, vec3(1.0), pow(abs(noise), 2.0) * intensity);
+    // Mix colors based on noise and position. Clamped: the noise sum reaches
+    // +/-1.5, and mixing beyond 0..1 pushed colours outside the palette
+    // (the yellowish smudges).
+    vec3 color = mix(color1, color2, clamp(noise * 0.5 + 0.5, 0.0, 1.0));
+    // Highlights toward white. Clamped: unclamped this reached ~2.9, which pushed
+    // blue past white into yellow (the yellow blotches behind the panels).
+    color = mix(color, vec3(1.0), clamp(pow(abs(noise), 2.0) * intensity, 0.0, 1.0));
     
-    // Add glow effect
-    float glow = 1.0 - length(uv - 0.5) * 2.0;
-    glow = pow(glow, 2.0);
+    // Add glow effect. Clamped before squaring: towards the corners the value
+    // goes negative, pow() of a negative is undefined on GPUs, and that drew the
+    // hard edges and grey corners instead of a soft fade.
+    float glow = clamp(1.0 - length(uv - 0.5) * 2.0, 0.0, 1.0);
+    glow = glow * glow;
     
     gl_FragColor = vec4(color * glow, glow * 0.8);
   }
@@ -118,7 +124,12 @@ export function EnergyRing({
 export default function ShaderBackground() {
   return (
     <div className="fixed inset-0 z-0 pointer-events-none opacity-60">
-      <Canvas camera={{ position: [0, 0, 3] }}>
+      <Canvas
+        camera={{ position: [0, 0, 3] }}
+        // A soft, blurry background gains nothing from rendering above 1.5x.
+        dpr={[1, 1.5]}
+        gl={{ antialias: false, alpha: true, powerPreference: "high-performance" }}
+      >
         <ShaderPlane position={[0, 0, -1]} color1="#3b82f6" color2="#8b5cf6" />
         <EnergyRing position={[0, 0, 0]} radius={1.5} color="#3b82f6" />
         <EnergyRing position={[0, 0, 0.2]} radius={2.5} color="#8b5cf6" />

@@ -1,5 +1,6 @@
 import { Upload } from "lucide-react";
 import { motion } from "motion/react";
+import { bouncy } from "../../lib/motion";
 import { useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react";
 
 interface Props {
@@ -58,6 +59,7 @@ export function UploadZone({ onFile }: Props) {
         animate={{ opacity: 1, scale: 1 }}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
+        transition={bouncy}
         className={`flex flex-col items-center justify-center gap-6 p-12 w-full rounded-[2rem] border-2 border-dashed transition-all duration-300 relative overflow-hidden group cursor-pointer focus-visible:ring-2 focus-visible:ring-white/40 outline-none ${
           isDragging
             ? "border-white bg-white/10 shadow-[0_0_40px_rgba(255,255,255,0.2)]"

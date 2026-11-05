@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Loader2, Trash2, Play, Calendar, ListMusic } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { bouncy } from "../lib/motion";
 import { CustomAudioPlayer } from './ui/CustomAudioPlayer';
 import { AUDIO_BUCKET, SIGNED_URL_TTL_SECONDS, chapterPath } from '../lib/storage';
 import { errorMessage } from '../lib/errors';
@@ -219,6 +220,7 @@ export function Library() {
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
+                      transition={bouncy}
                       onClick={() => playPlaylist(playlist)}
                       className="flex items-center gap-2 px-5 py-2 bg-white text-black text-sm font-bold rounded-full hover:bg-white/90 transition-colors shadow-lg shadow-white/10"
                     >
@@ -246,7 +248,7 @@ export function Library() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -20 }}
                   transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                  className="p-8 rounded-[2rem] bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl flex flex-col gap-6 relative overflow-hidden"
+                  className="p-8 rounded-[2rem] bg-white/5 border border-white/10 backdrop-blur-md shadow-2xl flex flex-col gap-6 relative overflow-hidden"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 pointer-events-none" />
                   
