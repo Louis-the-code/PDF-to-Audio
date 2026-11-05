@@ -3,107 +3,110 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { lazy, Suspense, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, Outlet, useLocation } from 'react-router-dom';
 import { supabase } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
-import { Loader2, LogOut } from 'lucide-react';
+import { Loader2, LogOut, Library as LibraryIcon, FileText } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Backdrop } from './components/ui/Backdrop';
-import { Logo } from './components/ui/Logo';
-import { spring } from './lib/motion';
 
-// Pages are split into their own chunks: react-pdf and pdf.js are heavy and the
-// sign-in screen needs none of the conversion code.
+// Pages are split into their own chunks: three.js, react-pdf and pdf.js are heavy
+// and the sign-in screen needs none of the conversion code.
 const WavyPDF = lazy(() => import('./components/WavyPDF').then(m => ({ default: m.WavyPDF })));
 const Library = lazy(() => import('./components/Library').then(m => ({ default: m.Library })));
 const Auth = lazy(() => import('./components/Auth').then(m => ({ default: m.Auth })));
 const UpdatePassword = lazy(() => import('./components/UpdatePassword').then(m => ({ default: m.UpdatePassword })));
+const ShaderBackground = lazy(() => import('./components/ui/ShaderBackground'));
 
 function Spinner() {
   return (
-    <div className="relative z-10 min-h-[50vh] flex items-center justify-center">
-      <Loader2 className="w-6 h-6 text-mist-faint animate-spin" />
+    <div className="min-h-[50vh] flex items-center justify-center">
+      <Loader2 className="w-8 h-8 text-white/30 animate-spin" />
     </div>
   );
 }
 
-const NAV = [
-  { to: '/', label: 'Create' },
-  { to: '/library', label: 'Library' },
-];
-
 function NavLinks() {
-  const { pathname } = useLocation();
-
+  const location = useLocation();
+  
   return (
-    <nav aria-label="Main" className="flex items-center gap-1 rounded-full border border-white/[0.08] bg-ink-900/80 p-1">
-      {NAV.map(({ to, label }) => {
-        const active = pathname === to;
-        return (
-          <Link
-            key={to}
-            to={to}
-            aria-current={active ? 'page' : undefined}
-            className={`press relative rounded-full px-4 py-1.5 text-sm font-medium ${active ? 'text-mist' : 'text-mist-muted hover:text-mist'}`}
-          >
-            {active && (
-              <motion.span
-                layoutId="nav-pill"
-                className="absolute inset-0 rounded-full bg-ink-700 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]"
-                transition={spring.tactile}
-              />
-            )}
-            <span className="relative">{label}</span>
-          </Link>
-        );
-      })}
-    </nav>
+    <div className="flex items-center gap-1 bg-white/5 p-1 rounded-full border border-white/10 relative">
+      <Link 
+        to="/" 
+        className={`relative flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-colors z-10 ${
+          location.pathname === '/' ? 'text-black' : 'text-white/70 hover:text-white hover:bg-white/10'
+        }`}
+      >
+        {location.pathname === '/' && (
+          <motion.div 
+            layoutId="nav-pill"
+            className="absolute inset-0 bg-white rounded-full -z-10"
+            transition={{ stiffness: 300, damping: 30 }}
+          />
+        )}
+        <FileText className="w-4 h-4" />
+        <span className="hidden sm:inline">Create</span>
+      </Link>
+      <Link 
+        to="/library" 
+        className={`relative flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-colors z-10 ${
+          location.pathname === '/library' ? 'text-black' : 'text-white/70 hover:text-white hover:bg-white/10'
+        }`}
+      >
+        {location.pathname === '/library' && (
+          <motion.div 
+            layoutId="nav-pill"
+            className="absolute inset-0 bg-white rounded-full -z-10"
+            transition={{ stiffness: 300, damping: 30 }}
+          />
+        )}
+        <LibraryIcon className="w-4 h-4" />
+        <span className="hidden sm:inline">Library</span>
+      </Link>
+    </div>
   );
 }
 
 function Layout({ session }: { session: Session }) {
   const location = useLocation();
-  const email = session.user.email ?? '';
 
   return (
-    <div className="relative min-h-screen flex flex-col text-mist">
-      <header className="glass sticky top-0 z-50 border-b border-white/[0.06] bg-ink-950/70 backdrop-blur-md">
-        <div className="mx-auto grid h-16 max-w-6xl grid-cols-[1fr_auto_1fr] items-center px-4 sm:px-6">
-          <Link to="/" className="press justify-self-start rounded-lg" aria-label="WavyPDF home">
-            <Logo compact />
-          </Link>
+    <div className="min-h-screen bg-black text-white font-sans selection:bg-white/30 flex flex-col relative overflow-hidden">
+      <Suspense fallback={null}>
+        <ShaderBackground />
+      </Suspense>
+
+      <header className="w-full border-b border-white/10 bg-black/50 backdrop-blur-xl sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
+              <div className="w-3 h-3 bg-white rounded-full" />
+            </div>
+            <span className="font-bold tracking-tight text-lg hidden sm:inline-block">WavyPDF</span>
+          </div>
 
           <NavLinks />
 
-          <div className="flex items-center gap-2 justify-self-end">
-            <span
-              className="hidden md:grid h-8 w-8 place-items-center rounded-full bg-ink-700 text-xs font-semibold uppercase text-mist"
-              title={email}
-              aria-hidden
-            >
-              {email.slice(0, 1)}
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-white/50 hidden md:inline-block bg-white/5 px-3 py-1.5 rounded-full border border-white/10">
+              {session.user.email}
             </span>
-            <button
-              type="button"
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => supabase?.auth.signOut()}
-              className="press grid h-9 w-9 place-items-center rounded-full text-mist-muted hover:bg-white/[0.06] hover:text-mist"
-              title={`Sign out ${email}`}
+              className="p-2 hover:bg-red-500/10 rounded-full transition-colors text-white/70 hover:text-red-400 border border-transparent hover:border-red-500/20"
+              title="Sign Out"
               aria-label="Sign Out"
             >
-              <LogOut className="h-4 w-4" />
-            </button>
+              <LogOut className="w-4 h-4" />
+            </motion.button>
           </div>
         </div>
       </header>
-      <main className="relative z-10 flex-1">
-        {/* Only the page content is keyed, so the header stays put between pages. */}
-        <motion.div
-          key={location.pathname}
-          initial={{ opacity: 0, transform: 'translateY(6px)' }}
-          animate={{ opacity: 1, transform: 'translateY(0px)' }}
-          transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
-        >
+      <main className="flex-1 overflow-y-auto relative z-10">
+        {/* Only the page content is keyed, so the header and background stay mounted. */}
+        <motion.div key={location.pathname} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="h-full">
           <Suspense fallback={<Spinner />}>
             <Outlet />
           </Suspense>
@@ -126,9 +129,11 @@ function AppRoutes({ session }: { session: Session | null }) {
           session ? (
             <Navigate to="/" replace />
           ) : (
-            <Suspense fallback={<Spinner />}>
-              <Auth />
-            </Suspense>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <Suspense fallback={<Spinner />}>
+                <Auth />
+              </Suspense>
+            </motion.div>
           )
         }
       />
@@ -166,22 +171,25 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-white/30 animate-spin" />
+      </div>
+    );
+  }
+
+  if (recovering) {
+    return (
+      <Suspense fallback={<Spinner />}>
+        <UpdatePassword onDone={() => setRecovering(false)} />
+      </Suspense>
+    );
+  }
+
   return (
-    <>
-      <Backdrop />
-      {loading ? (
-        <div className="relative z-10 min-h-screen flex items-center justify-center">
-          <Loader2 className="w-6 h-6 text-mist-faint animate-spin" />
-        </div>
-      ) : recovering ? (
-        <Suspense fallback={<Spinner />}>
-          <UpdatePassword onDone={() => setRecovering(false)} />
-        </Suspense>
-      ) : (
-        <Router>
-          <AppRoutes session={session} />
-        </Router>
-      )}
-    </>
+    <Router>
+      <AppRoutes session={session} />
+    </Router>
   );
 }

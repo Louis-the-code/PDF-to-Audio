@@ -8,14 +8,14 @@ export function PasswordInput({ className, ...props }: Props) {
   const [visible, setVisible] = useState(false);
 
   return (
-    <div className="relative">
-      <Lock className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-mist-faint" />
+    <div className="relative group">
+      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 group-focus-within:text-white/80 transition-colors" />
       <input
         {...props}
         type={visible ? 'text' : 'password'}
         className={
           className ??
-          'h-12 w-full rounded-xl border border-white/[0.08] bg-ink-800 pl-11 pr-12 text-[15px] text-mist placeholder:text-mist-faint outline-none transition-[border-color,box-shadow] duration-150 focus:border-signal/60 focus:shadow-[0_0_0_4px_rgb(255_138_92/0.12)]'
+          'w-full bg-black/40 border border-white/10 rounded-2xl py-3.5 pl-11 pr-12 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 focus:bg-white/5 transition-all'
         }
       />
       <button
@@ -24,7 +24,7 @@ export function PasswordInput({ className, ...props }: Props) {
         aria-label={visible ? 'Hide password' : 'Show password'}
         aria-pressed={visible}
         aria-controls={props.id}
-        className="press absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-mist-faint hover:bg-white/[0.06] hover:text-mist"
+        className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
       >
         {visible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
       </button>

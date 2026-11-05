@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PasswordInput } from './ui/PasswordInput';
-import { LogoMark } from './ui/Logo';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -34,19 +33,15 @@ export function UpdatePassword({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-10">
-      <form onSubmit={submit} className="w-full max-w-[420px] space-y-5 rounded-3xl border border-white/[0.08] bg-ink-900/90 p-7 shadow-lift sm:p-9">
-        <div className="mb-8">
-          <span className="mb-6 flex items-center gap-2.5">
-            <LogoMark />
-            <span className="font-display text-lg font-semibold tracking-tight">WavyPDF</span>
-          </span>
-          <h1 className="text-3xl font-semibold">Set a new password</h1>
-          <p className="mt-2 text-mist-muted">Choose a new password for your account.</p>
+    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 font-sans">
+      <form onSubmit={submit} className="w-full max-w-md bg-white/5 border border-white/10 p-8 sm:p-10 rounded-[2rem] space-y-5">
+        <div className="text-center mb-6">
+          <h1 className="text-3xl font-bold tracking-tight mb-3">Set a new password</h1>
+          <p className="text-white/60 text-sm">Choose a new password for your account.</p>
         </div>
 
         {error && (
-          <div role="alert" className="rounded-xl border border-danger/25 bg-danger/10 px-4 py-3 text-sm text-danger">
+          <div role="alert" className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-sm">
             {error}
           </div>
         )}
@@ -55,8 +50,8 @@ export function UpdatePassword({ onDone }: { onDone: () => void }) {
           { id: 'new-password', label: 'New password', value: password, set: setPassword },
           { id: 'confirm-password', label: 'Confirm new password', value: confirm, set: setConfirm },
         ].map((field) => (
-          <div key={field.id} className="space-y-2">
-            <label htmlFor={field.id} className="text-sm font-medium text-mist-muted">
+          <div key={field.id} className="space-y-1.5">
+            <label htmlFor={field.id} className="text-xs font-medium text-white/70 ml-1">
               {field.label}
             </label>
             <PasswordInput
@@ -73,9 +68,9 @@ export function UpdatePassword({ onDone }: { onDone: () => void }) {
         <button
           type="submit"
           disabled={loading}
-          className="press mt-2 flex h-12 w-full items-center justify-center rounded-xl bg-signal font-semibold text-ink-950 shadow-signal hover:bg-signal-strong disabled:opacity-60"
+          className="w-full bg-white text-black font-semibold rounded-2xl py-3.5 flex items-center justify-center gap-2 hover:bg-white/90 transition-all disabled:opacity-50 mt-8"
         >
-          {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Save password'}
+          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Save password <ArrowRight className="w-4 h-4" /></>}
         </button>
       </form>
     </div>
