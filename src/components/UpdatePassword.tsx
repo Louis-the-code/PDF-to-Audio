@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Loader2, Lock, ArrowRight } from 'lucide-react';
+import { Loader2, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { PasswordInput } from './ui/PasswordInput';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -31,9 +32,6 @@ export function UpdatePassword({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const inputClass =
-    'w-full bg-black/40 border border-white/10 rounded-2xl py-3.5 pl-11 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-white/20 focus:bg-white/5 transition-all';
-
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 font-sans">
       <form onSubmit={submit} className="w-full max-w-md bg-white/5 border border-white/10 p-8 sm:p-10 rounded-[2rem] space-y-5">
@@ -56,19 +54,14 @@ export function UpdatePassword({ onDone }: { onDone: () => void }) {
             <label htmlFor={field.id} className="text-xs font-medium text-white/70 ml-1">
               {field.label}
             </label>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-              <input
-                id={field.id}
-                type="password"
-                required
-                minLength={MIN_PASSWORD_LENGTH}
-                autoComplete="new-password"
-                value={field.value}
-                onChange={(e) => field.set(e.target.value)}
-                className={inputClass}
-              />
-            </div>
+            <PasswordInput
+              id={field.id}
+              required
+              minLength={MIN_PASSWORD_LENGTH}
+              autoComplete="new-password"
+              value={field.value}
+              onChange={(e) => field.set(e.target.value)}
+            />
           </div>
         ))}
 
