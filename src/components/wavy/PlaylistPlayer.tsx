@@ -9,9 +9,11 @@ interface Props {
   index: number;
   onIndexChange: (index: number) => void;
   cloud: { save: () => void; saving: boolean; saved: boolean; status: string | null };
+  /** Hidden while the audiobook is still being made: saving a partial book would be confusing. */
+  canSave?: boolean;
 }
 
-export function PlaylistPlayer({ playlist, index, onIndexChange, cloud }: Props) {
+export function PlaylistPlayer({ playlist, index, onIndexChange, cloud, canSave = true }: Props) {
   const goTo = (i: number) => {
     if (i >= 0 && i < playlist.length) onIndexChange(i);
   };
@@ -31,6 +33,7 @@ export function PlaylistPlayer({ playlist, index, onIndexChange, cloud }: Props)
               {cloud.status}
             </motion.span>
           )}
+          {canSave && (
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -42,6 +45,7 @@ export function PlaylistPlayer({ playlist, index, onIndexChange, cloud }: Props)
             {cloud.saving ? <Loader2 className="w-4 h-4 animate-spin" /> : cloud.saved ? <Check className="w-4 h-4" /> : <Cloud className="w-4 h-4" />}
             {cloud.saved ? "Saved" : "Save to Cloud"}
           </motion.button>
+          )}
           <span className="text-xs font-medium text-white/50 bg-black/40 px-3 py-1.5 rounded-lg border border-white/5">
             {index + 1} of {playlist.length}
           </span>

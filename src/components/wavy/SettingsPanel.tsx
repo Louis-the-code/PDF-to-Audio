@@ -18,9 +18,11 @@ interface Props {
   onFormatChange: (format: AudioFormat) => void;
   maxChars: number;
   onMaxCharsChange: (value: number) => void;
+  reviewFirst: boolean;
+  onReviewFirstChange: (value: boolean) => void;
 }
 
-export function SettingsPanel({ voice, onVoiceChange, onPreview, loadingPreviewVoice, format, onFormatChange, maxChars, onMaxCharsChange }: Props) {
+export function SettingsPanel({ voice, onVoiceChange, onPreview, loadingPreviewVoice, format, onFormatChange, maxChars, onMaxCharsChange, reviewFirst, onReviewFirstChange }: Props) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -118,6 +120,19 @@ export function SettingsPanel({ voice, onVoiceChange, onPreview, loadingPreviewV
           </div>
         </div>
       </div>
+
+      {/* Off by default: drop a PDF and the audio is made in one go. */}
+      <label className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-white/5 bg-black/40 px-4 py-3">
+        <span className="text-left">
+          <span className="block text-sm font-medium text-white/80">Review text before creating audio</span>
+          <span className="block text-xs text-white/40">Off: upload a PDF and the audio is made in one go.</span>
+        </span>
+        <input type="checkbox" className="peer sr-only" checked={reviewFirst} onChange={(e) => onReviewFirstChange(e.target.checked)} />
+        <span
+          aria-hidden
+          className="relative h-6 w-11 shrink-0 rounded-full bg-white/15 transition-colors duration-200 peer-checked:bg-white peer-focus-visible:ring-2 peer-focus-visible:ring-white/50 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow after:transition-transform after:duration-300 after:ease-[cubic-bezier(0.34,1.56,0.64,1)] peer-checked:after:translate-x-5 peer-checked:after:bg-black"
+        />
+      </label>
     </motion.div>
   );
 }

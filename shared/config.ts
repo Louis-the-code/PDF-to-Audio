@@ -3,7 +3,10 @@
 export const VOICES = ["Puck", "Charon", "Fenrir", "Kore", "Aoede", "Zephyr"] as const;
 export type Voice = (typeof VOICES)[number];
 
-export const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10MB
+/** Largest PDF a user can upload. Big files are split into page batches in the browser. */
+export const MAX_PDF_BYTES = 30 * 1024 * 1024; // 30MB
+/** Largest single PDF (or page batch) the server accepts in one request. */
+export const MAX_BATCH_BYTES = 10 * 1024 * 1024; // 10MB
 export const MAX_TTS_CHARS = 12_000;
 export const MAX_CLEANUP_CHARS = 100_000;
 

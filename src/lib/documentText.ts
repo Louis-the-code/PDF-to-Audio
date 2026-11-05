@@ -1,4 +1,6 @@
 import { api, ApiError } from "./api";
+import { splitPdf, type PdfBatch } from "./pdfBatches";
+import { AdaptiveLimit, runPool } from "./pool";
 import { withRetry } from "./retry";
 
 /** The server caps cleanup input at this many characters. */
@@ -36,13 +38,13 @@ export function assemblePageText(items: PdfTextItem[]): string {
   return text;
 }
 
-/** Extracts text in the browser with pdf.js (no network). */
-async function extractLocally(file: File): Promise<string> {
-  // Loaded on demand: pdf.js is large and only needed for this fallback and the preview.
+/** Extracts text in the browser with pdf.js (no network), optionally for a page range. */
+async function extractLocally(file: File, from = 1, to = Number.POSITIVE_INFINITY): Promise<string> {
+  // Loaded on demand: pdf.js is large and only needed for fallbacks and the preview.
   const { pdfjs } = await import("./pdfjs");
   const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
   let full = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
+  for (let i = Math.max(1, from); i <= Math.min(pdf.numPages, to); i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
     full += assemblePageText(content.items as PdfTextItem[]) + "\n\n";
@@ -50,13 +52,78 @@ async function extractLocally(file: File): Promise<string> {
   return full;
 }
 
+export interface ExtractOptions {
+  onStatus: (message: string) => void;
+  /** Page batches finished so far, out of the total (only reported for large documents). */
+  onProgress?: (done: number, total: number) => void;
+  signal?: AbortSignal;
+}
+
+/** Parallel requests for page batches; lowered automatically if the provider rate-limits. */
+const PARALLEL_BATCHES = 4;
+
+const busyMessage = (delay: number) => `The AI service asked us to slow down. Continuing in ${Math.round(delay / 1000)}s…`;
+
 /**
- * Turns a PDF into narration-ready text. Tries the AI extractor first; if that fails,
- * falls back to local extraction followed by an AI cleanup pass (or the raw text if
- * cleanup also fails).
+ * Turns a PDF into narration-ready text with chapter markers. Large documents
+ * are split into page batches that are read in parallel, so long books are
+ * fast and never cut off by the model's answer length. Each batch falls back to
+ * local extraction on its own if the AI can't read it.
  */
-export async function extractDocumentText(file: File, onStatus: (message: string) => void): Promise<string> {
-  const onWait = (delay: number) => onStatus(`The AI service is busy. Waiting ${Math.round(delay / 1000)}s before retrying...`);
+export async function extractDocumentText(file: File, { onStatus, onProgress, signal }: ExtractOptions): Promise<string> {
+  onStatus("Opening your PDF…");
+  let batches: PdfBatch[] = [];
+  try {
+    batches = (await splitPdf(file)).batches;
+  } catch (err) {
+    // Encrypted or unusual PDFs: send the file as a whole instead.
+    console.warn("Could not split the PDF into page batches", err);
+  }
+
+  const text = batches.length > 1 ? await extractInBatches(file, batches, { onStatus, onProgress, signal }) : await extractWhole(file, onStatus);
+  if (!text.trim()) {
+    throw new Error("Failed to extract text from PDF. The document might be empty or scanned as images.");
+  }
+  return text;
+}
+
+async function extractInBatches(file: File, batches: PdfBatch[], { onStatus, onProgress, signal }: ExtractOptions): Promise<string> {
+  const total = batches[0].total;
+  const limit = new AdaptiveLimit(PARALLEL_BATCHES);
+  let done = 0;
+  onStatus(`Reading ${total} pages, ${Math.min(PARALLEL_BATCHES, batches.length)} parts at a time…`);
+  onProgress?.(0, batches.length);
+
+  const texts = await runPool(
+    batches,
+    limit,
+    async (batch) => {
+      let text = "";
+      try {
+        text = await withRetry(() => api.extractPdf(batch.base64, { from: batch.from, to: batch.to, total }), {
+          onWait: (delay, err) => {
+            if (err.status === 429) limit.backoff();
+            onStatus(busyMessage(delay));
+          },
+        });
+        limit.success();
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) throw err;
+        console.warn(`AI extraction failed for pages ${batch.from}-${batch.to}; reading them locally`, err);
+      }
+      if (!text.trim()) text = await extractLocally(file, batch.from, batch.to).catch(() => "");
+      onProgress?.(++done, batches.length);
+      onStatus(`Read ${Math.min(total, batch.to)} of ${total} pages…`);
+      return text.trim();
+    },
+    signal,
+  );
+  return texts.filter(Boolean).join("\n\n");
+}
+
+/** Small documents (or ones that can't be split): one request, with a local fallback plus AI cleanup. */
+async function extractWhole(file: File, onStatus: (message: string) => void): Promise<string> {
+  const onWait = (delay: number) => onStatus(busyMessage(delay));
 
   onStatus("Extracting text from PDF...");
   let text = "";
@@ -87,10 +154,6 @@ export async function extractDocumentText(file: File, onStatus: (message: string
         text = raw;
       }
     }
-  }
-
-  if (!text.trim()) {
-    throw new Error("Failed to extract text from PDF. The document might be empty or scanned as images.");
   }
   return text;
 }

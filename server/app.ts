@@ -1,14 +1,14 @@
 import express, { type ErrorRequestHandler, type Express, type RequestHandler } from "express";
 import {
   MAX_CLEANUP_CHARS,
-  MAX_PDF_BYTES,
+  MAX_BATCH_BYTES,
   MAX_TTS_CHARS,
   VOICES,
   type Voice,
 } from "../shared/config";
 import { requireAuth, type TokenVerifier } from "./auth";
 import type { ServerConfig } from "./config";
-import type { AiService } from "./gemini";
+import type { AiService, PageRange } from "./gemini";
 import { createRateLimiter } from "./rateLimit";
 
 export interface AppDeps {
@@ -44,6 +44,18 @@ export function toHttpError(err: unknown): HttpError {
     return new HttpError(422, "The AI service could not process this content.", "AI_REJECTED");
   }
   return new HttpError(502, "The AI service is temporarily unavailable. Please try again.", "AI_UNAVAILABLE");
+}
+
+const isPageNumber = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= 100_000;
+
+/** Optional { from, to, total } describing which pages of the document a batch holds. */
+function parsePageRange(value: unknown): PageRange | undefined {
+  if (value === undefined || value === null) return undefined;
+  const { from, to, total } = value as Record<string, unknown>;
+  if (!isPageNumber(from) || !isPageNumber(to) || !isPageNumber(total) || from > to || to > total) {
+    throw new HttpError(400, "Invalid page range.", "BAD_REQUEST");
+  }
+  return { from, to, total };
 }
 
 const isVoice = (v: unknown): v is Voice => typeof v === "string" && (VOICES as readonly string[]).includes(v);
@@ -85,13 +97,14 @@ export function createApp({ config, verify, ai }: AppDeps): Express {
         throw new HttpError(400, "Missing PDF data.", "BAD_REQUEST");
       }
       const bytes = Buffer.from(pdf, "base64");
-      if (bytes.length > MAX_PDF_BYTES) {
-        throw new HttpError(413, "File size exceeds the 10MB limit.", "TOO_LARGE");
+      if (bytes.length > MAX_BATCH_BYTES) {
+        throw new HttpError(413, "This part of the PDF is over 10MB.", "TOO_LARGE");
       }
       if (bytes.subarray(0, 5).toString("latin1") !== "%PDF-") {
         throw new HttpError(400, "That doesn't look like a valid PDF.", "BAD_REQUEST");
       }
-      res.json({ text: await ai.extractText(pdf) });
+      const pages = parsePageRange(req.body?.pages);
+      res.json({ text: await ai.extractText(pdf, pages) });
     }),
   );
 

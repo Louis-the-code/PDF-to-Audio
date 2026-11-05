@@ -47,3 +47,45 @@ describe("acceptChapterSuggestion", () => {
     expect(parseChapters(out)[0].title).toBe("Part A)");
   });
 });
+
+import { autoMarkChapters, splitIntoParts } from "./chapters";
+
+describe("autoMarkChapters", () => {
+  it("marks every detected heading at once", () => {
+    const { text, added } = autoMarkChapters("Chapter 1: Start\nbody\nChapter 2: Next\nmore");
+    expect(added).toBe(2);
+    expect(parseChapters(text).map((c) => c.title)).toEqual(["Chapter 1: Start", "Chapter 2: Next"]);
+  });
+
+  it("leaves text that already has markers, or only one heading, alone", () => {
+    expect(autoMarkChapters("[CHAPTER: A]\nx\nChapter 2: B\ny").added).toBe(0);
+    expect(autoMarkChapters("Chapter 1: Only one\nbody").added).toBe(0);
+  });
+});
+
+describe("splitIntoParts", () => {
+  const para = (n: number) => `Paragraph ${n}. ` + "word ".repeat(200).trim();
+
+  it("splits an unstructured document into parts at paragraph breaks", () => {
+    const text = Array.from({ length: 30 }, (_, i) => para(i)).join("\n\n");
+    const parts = splitIntoParts([{ title: "Full Document", text }], 5000);
+    expect(parts.length).toBeGreaterThan(3);
+    expect(parts[0].title).toBe("Part 1");
+    expect(parts.every((p) => p.text.length <= 5000 + 1100)).toBe(true);
+    expect(parts.map((p) => p.text).join("\n\n")).toBe(text);
+  });
+
+  it("keeps real chapters and short documents as they are", () => {
+    const chapters = [{ title: "One", text: "x".repeat(50_000) }];
+    expect(splitIntoParts(chapters)).toBe(chapters);
+    const short = [{ title: "Full Document", text: "short" }];
+    expect(splitIntoParts(short)).toBe(short);
+  });
+
+  it("folds a tiny tail into the last part", () => {
+    const text = [para(1), para(2), para(3), "Tiny end."].join("\n\n");
+    const parts = splitIntoParts([{ title: "Full Document", text }], 1100);
+    expect(parts[parts.length - 1].text.endsWith("Tiny end.")).toBe(true);
+    expect(parts.some((p) => p.text === "Tiny end.")).toBe(false);
+  });
+});

@@ -9,6 +9,7 @@ import { supabase } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import { Loader2, LogOut, Library as LibraryIcon, FileText } from 'lucide-react';
 import { motion } from 'motion/react';
+import { LogoMark } from './components/ui/Logo';
 import { bouncy } from "./lib/motion";
 
 // Pages are split into their own chunks: three.js, react-pdf and pdf.js are heavy
@@ -80,9 +81,7 @@ function Layout({ session }: { session: Session }) {
       <header className="w-full border-b border-white/10 bg-black/50 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-              <div className="w-3 h-3 bg-white rounded-full" />
-            </div>
+            <LogoMark className="w-8 h-8 drop-shadow-[0_4px_12px_rgba(59,130,246,0.35)]" />
             <span className="font-bold tracking-tight text-lg hidden sm:inline-block">WavyPDF</span>
           </div>
 

@@ -36,8 +36,18 @@ Browser ──(Supabase session token)──▶ Express /api/* ──(GEMINI_API
   `/api/tts` and `/api/preview`; every route requires a valid Supabase session, is rate limited per
   user, and validates its input (`server/`). Never add the key to a `VITE_` variable or to
   `vite.config.ts`'s `define` — anything there is readable by every visitor.
-- Text extraction tries Gemini first and falls back to local pdf.js extraction plus an AI cleanup.
-- Audio is generated per segment, so a failed run resumes from the segments that already succeeded.
+- **One step:** drop a PDF and the audio is made automatically (turn on *Review text before creating
+  audio* to check the text first).
+- **Reading:** large PDFs are split into 8-page batches in the browser and read in parallel, so long
+  documents are fast and never cut off. A batch the AI can't read falls back to local pdf.js text.
+  The fastest available Gemini model is used, falling back automatically (`GEMINI_EXTRACT_MODEL`).
+- **Structure:** chapter headings are marked automatically; documents without chapters are split into
+  ~12-minute parts.
+- **Voicing:** all segments share one queue in reading order with up to 4 requests at once, slowing
+  down automatically when Gemini rate-limits. Each chapter is playable as soon as it's finished, and
+  finished chapters are cached, so retries and text edits only re-voice what changed.
+- Speed is ultimately bounded by your Gemini quota: on the free tier the TTS model allows only a few
+  requests per minute, so long documents need a paid tier to be fast.
 - Saved audio is stored in a private bucket and played through short-lived signed URLs.
 
 ## Layout
